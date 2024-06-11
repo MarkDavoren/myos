@@ -1,10 +1,14 @@
-org 0x7C00
+org 0x0
 bits 16
 
 %define ENDL 0x0D, 0x0A
 
 start:
-    jmp main
+    mov si, hello_msg
+    call puts
+
+    cli
+    hlt
 
 
 ;
@@ -35,26 +39,7 @@ puts:
     pop si    
     ret
 
-main:
-    ; setup data segments
-    mov ax, 0           ; can't set ds/es directly
-    mov ds, ax
-    mov es, ax
-    
-    ; setup stack
-    mov ss, ax
-    mov sp, 0x7C00      ; stack grows downwards from where we are loaded in memory
-
-    ; print hello world message
-    mov si, msg_hello
-    call puts
-
-    hlt
-
-.halt:
-    jmp .halt
-
-msg_hello: db 'Hello world!', ENDL, 0
+hello_msg: db 'Hello world from the kernel!!', ENDL, 0
 
 times 510-($-$$) db 0
 dw 0xAA55
