@@ -1,0 +1,32 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [],
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "linux-gcc-x64",
+            "configurationProvider": "ms-vscode.makefile-tools"
+        },
+        {
+            "name": "Watcom",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [
+                "_cdecl="
+            ],
+            "compilerPath": "",
+            "cStandard": "c99",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "clang-x64",
+            "compilerArgs": [
+                "-4 -d3 -s -wx -ms -zl -zq"
+            ]
+        }
+    ],
+    "version": 4
+}

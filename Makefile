@@ -1,13 +1,15 @@
 .RECIPEPREFIX := $() $()
 
-ASM=nasm
-export ASM
+export ASM := nasm
+export ASMFLAGS := -f obj
+export CC16 := /usr/bin/watcom/binl64/wcc
+export CCFLAGS16 := -4 -d3 -s -wx -ms -zl -zq
+export LD16 := /usr/bin/watcom/binl64/wlink
 
 SRC_DIR=src
 BUILD_DIR=build
 
-COMPONENTS := bootloader kernel
-BINARY_PATHS := $(addprefix $(BUILD_DIR)/,$(addsuffix .bin,$(notdir $(COMPONENTS))))
+SUBDIRS := bootloader
 
 .PHONY: all build floppy_image bootloader kernel clean
 
@@ -16,15 +18,16 @@ all: build floppy_image
 #
 # Floppy image
 #
-floppy_image: $(COMPONENTS) $(BUILD_DIR)/main_floppy.img
+floppy_image: $(SUBDIRS) $(BUILD_DIR)/main_floppy.img
 
-$(BUILD_DIR)/main_floppy.img: $(BINARY_PATHS)
+$(BUILD_DIR)/main_floppy.img: $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin
     dd if=/dev/zero of=$(BUILD_DIR)/main_floppy.img bs=512 count=2880
     mkfs.fat -F 12 -n "MYOS" $(BUILD_DIR)/main_floppy.img
-    dd if=$(BUILD_DIR)/bootloader.bin of=$(BUILD_DIR)/main_floppy.img conv=notrunc
-    mcopy -i $(BUILD_DIR)/main_floppy.img $(BUILD_DIR)/kernel.bin "::kernel.bin"
+    dd if=$(BUILD_DIR)/stage1.bin of=$(BUILD_DIR)/main_floppy.img conv=notrunc
+    mcopy -i $(BUILD_DIR)/main_floppy.img $(BUILD_DIR)/stage2.bin "::stage2.bin"
+#    mcopy -i $(BUILD_DIR)/main_floppy.img $(BUILD_DIR)/kernel.bin "::kernel.bin"
 	
-$(COMPONENTS):
+$(SUBDIRS):
     $(MAKE) -C $(SRC_DIR)/$@ BUILD_DIR=$(abspath $(BUILD_DIR))
 
 #

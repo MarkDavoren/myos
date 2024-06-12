@@ -15,8 +15,8 @@ bits 16
 ;
 ; The objectives of this code are:
 ;   - Set key registers to a known state, e.g. setup stack
-;   - Load "KERNEL.BIN" from the FAT12 filesystem on floppy
-;   - Jump to the kernel
+;   - Load "STAGE2.BIN" from the FAT12 filesystem on floppy
+;   - Jump to stage2
 
 ;
 ; Floppy disks used the FAT12 filesystem
@@ -196,14 +196,14 @@ start:
     call read_disk
 
 ;
-; Search for kernel.bin
+; Search for stage2.bin
 ;
     xor bx, bx
     mov di, buffer              ; DI points to the first directory entry
 
-.search_kernel:
+.search_stage2:
     ; The filename is the first field in a directory entry
-    mov si, kernel_filename
+    mov si, stage2_filename
     mov cx, 11
     push di
     ; The repe cmpsb instruction repeats while DS:SI == ES:DI up to CX times
@@ -211,21 +211,21 @@ start:
     ; ZF is set if the strings are equal
     repe cmpsb
     pop di
-    je .found_kernel
+    je .found_stage2
 
     add di, 32
     inc bx
     cmp bx, [bpb_dir_entries_count]
-    jl .search_kernel
+    jl .search_stage2
 
-    mov si, kernel_not_found_msg
+    mov si, stage2_not_found_msg
     call puts
     jmp wait_for_key_and_reboot
 
-.found_kernel:
-    ; DI points to directory entry for the kernel
+.found_stage2:
+    ; DI points to directory entry for the stage2
     mov ax, [di + 26]           ; The first cluster number of the file
-    mov [kernel_cluster], ax    ; Don't have enough registers so put in memory
+    mov [cluster], ax    ; Don't have enough registers so put in memory
 
 ;
 ; Load FAT
@@ -239,13 +239,13 @@ start:
     mov dl, [ebr_drive_number]      ; drive number
     call read_disk
 
-    ; Set up a segmented address for the kernel to be loaded into
-    mov bx, KERNEL_LOAD_SEGMENT
+    ; Set up a segmented address for the stage2 to be loaded into
+    mov bx, STAGE2_LOAD_SEGMENT
     mov es, bx
-    mov bx, KERNEL_LOAD_OFFSET
+    mov bx, STAGE2_LOAD_OFFSET
 
 ;
-; Load kernel
+; Load stage2
 ;
     ; HACK ALERT!!!
     ; The starting sector of a cluster is
@@ -259,8 +259,8 @@ start:
     ;   - root dir size = roundup(#dir entries * 32 / bytes per sector) = 224 * 32 / 512 = 14
     ; Then
     ; cluster LBA = (cluster_number - 2) * 1 + 1 + 18 + 14 = cluster_number + 31
-.load_kernel_loop:
-    mov ax, [kernel_cluster]
+.load_stage2_loop:
+    mov ax, [cluster]
     add ax, 31
     mov cl, 1
     mov dl, [ebr_drive_number]
@@ -274,7 +274,7 @@ start:
     ; If the cluster number is even, we want the bottom 12 bits
     ; Otherwise we want the top 12 bits
     ; 
-    mov ax, [kernel_cluster]
+    mov ax, [cluster]
     mov cx, 3
     mul cx
     mov cx, 2
@@ -297,17 +297,17 @@ start:
     cmp ax, 0x0FF8
     jae .read_finish
 
-    mov [kernel_cluster], ax
-    jmp .load_kernel_loop
+    mov [cluster], ax
+    jmp .load_stage2_loop
 
 .read_finish:
     mov dl, [ebr_drive_number]
 
-    mov ax, KERNEL_LOAD_SEGMENT
+    mov ax, STAGE2_LOAD_SEGMENT
     mov ds, ax
     mov es, ax
 
-    jmp KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
+    jmp STAGE2_LOAD_SEGMENT:STAGE2_LOAD_OFFSET
 
     jmp wait_for_key_and_reboot
 
@@ -490,8 +490,8 @@ disk_error:
     call puts
     jmp wait_for_key_and_reboot
 
-kernel_not_found:
-    mov si, kernel_not_found_msg
+stage2_not_found:
+    mov si, stage2_not_found_msg
     call puts
     jmp wait_for_key_and_reboot
     
@@ -516,18 +516,18 @@ halt:
 ; Strings
 
 disk_failure_msg: db 'Disk operation failed!', ENDL, 0
-kernel_not_found_msg: db 'KERNEL.BIN not found!', ENDL, 0
+stage2_not_found_msg: db 'STAGE2.BIN not found!', ENDL, 0
 
-kernel_filename: db 'KERNEL  BIN'
+stage2_filename: db 'STAGE2  BIN'
 
-kernel_cluster: dw 0
+cluster: dw 0
 
 times 510-($-$$) db 0
 dw 0xAA55
 
 buffer:                 ; This will be at 0x7E00
 
-; Load the kernel into memory starting at 0x2000
-KERNEL_LOAD_SEGMENT equ 0x2000
-KERNEL_LOAD_OFFSET  equ 0
+; Load the stage2 into memory starting at 0x2000
+STAGE2_LOAD_SEGMENT equ 0x2000
+STAGE2_LOAD_OFFSET  equ 0
 

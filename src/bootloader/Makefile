@@ -1,9 +1,10 @@
 .RECIPEPREFIX := $() $()
 
-.PHONY: all
+SUBDIRS := stage1 stage2
 
-all: $(BUILD_DIR)/bootloader.bin
+.PHONY: all $(SUBDIRS)
 
-$(BUILD_DIR)/bootloader.bin: boot.asm
-    $(ASM) boot.asm -f bin -o $(BUILD_DIR)/bootloader.bin
+all: $(SUBDIRS)
 
+$(SUBDIRS):
+    $(MAKE) -C $@
