@@ -5,13 +5,14 @@ ASM=nasm
 SRC_DIR=src
 BUILD_DIR=build
 
-.PHONY: floppy_image clean init
+.PHONY: all build floppy_image clean
+
+all: build floppy_image
 
 #
 # Floppy image
 #
 floppy_image: $(BUILD_DIR)/main_floppy.img
-
 
 $(BUILD_DIR)/main_floppy.img: $(BUILD_DIR)/bootloader.bin $(BUILD_DIR)/kernel.bin
     dd if=/dev/zero of=$(BUILD_DIR)/main_floppy.img bs=512 count=2880
@@ -32,15 +33,13 @@ $(BUILD_DIR)/kernel.bin: $(SRC_DIR)/kernel/main.asm
     $(ASM) $(SRC_DIR)/kernel/main.asm -f bin -o $(BUILD_DIR)/kernel.bin
 
 #
-# Initialization
+# Setup build
 #
-init:
-    mkdir -p $(BUILD_DIR)
+build:
+    @mkdir -p $(BUILD_DIR)
 
 #
 # Clean
 #
 clean:
     rm -rf $(BUILD_DIR)
-
-all: clean init floppy_image
