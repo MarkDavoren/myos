@@ -3,7 +3,7 @@
 export ASM := nasm
 export ASMFLAGS := -f obj
 export CC16 := /usr/bin/watcom/binl64/wcc
-export CCFLAGS16 := -4 -d3 -s -wx -ms -zl -zq
+export CFLAGS16 := -4 -d3 -s -wx -ms -zl -zq
 export LD16 := /usr/bin/watcom/binl64/wlink
 
 SRC_DIR=src
@@ -28,13 +28,13 @@ $(BUILD_DIR)/main_floppy.img: $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin
 #    mcopy -i $(BUILD_DIR)/main_floppy.img $(BUILD_DIR)/kernel.bin "::kernel.bin"
 	
 $(SUBDIRS):
-    $(MAKE) -C $(SRC_DIR)/$@ BUILD_DIR=$(abspath $(BUILD_DIR))
+    $(MAKE) -C $(SRC_DIR)/$@ BUILD_DIR=$(abspath $(BUILD_DIR)) $(MAKECMDGOALS)
 
 #
 # Setup build
 #
 build:
-    @mkdir -p $(BUILD_DIR)
+    mkdir -p $(BUILD_DIR)
 
 #
 # Clean

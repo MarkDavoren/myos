@@ -1,4 +1,0 @@
-main.c(5): Warning! W131: No prototype found for function 'puts'
-main.c(3): Warning! W303: Parameter 'bootDrive' has been defined, but not referenced
-main.c(5): Warning! W308: The function 'puts' without prototyped parameters called
-main.c(5): Note! I2002: 'puts' defined in: main.c(5)
