@@ -2,12 +2,19 @@ bits 16
 
 section _TEXT class=code
 
+;
+; void _cdecl bios_putc(char c, uint8_t page)
+;
+; Uses Int 10 0E to display c on page
+;
+
 global _bios_putc
 _bios_putc:
     ; Make new stack frame
     push bp
     mov bp, sp
 
+    ; Save registers
     push bx
 
     ; [bp + 0] - old call frame
@@ -20,6 +27,7 @@ _bios_putc:
     mov bh, [bp + 6]    ; BH = page
     int 10h
 
+    ; Restore registers
     pop bx
 
     ; Restore old stack frame
@@ -28,28 +36,238 @@ _bios_putc:
     ret
 
 ;
-; void _cdecl x86_div64_32(uint64_t dividend, uint32_t divisor, uint64_t* quotient, uint32_t* remainder);
+; bool _cdecl bios_resetDisk(uint8_t driveNumber)
+;
+; Uses Int 13h 0 to reset disk driveNUmber
+;
+
+global _bios_resetDisk
+_bios_resetDisk:
+    ; Make new stack frame
+    push bp
+    mov bp, sp
+
+    ; [bp + 0] - old call frame
+    ; [bp + 2] - return address (small memory model => 2 bytes)
+    ; [bp + 4] - drive number
+ 
+    mov ah, 0           ; AH = BIOS function: Reset disk
+    mov dl, [bp + 4]    ; DL = drive number
+    stc
+    int 13h             ; Int 13h AH=0: Reset disk
+
+    ; return success status
+    mov ax, 1
+    sbb ax, 0       ; Subtract with borrow. If CF is clear then AX = 1, otherwise AX = 0
+
+    ; Restore old stack frame
+    mov sp, bp
+    pop bp
+    ret
+
+;
+; bool _cdecl bios_readDisk(
+;                 uint8_t driveNumber,
+;                 uint16_t cylinder,
+;                 uint16_t head,
+;                 uint16_t sector,
+;                 uint8_t* count,
+;                 uint8_t far* buffer);
+;
+; Reads count sectors starting at cylinder/head/sector of the specified drive into buffer
+;
+; Supposedly Int 13h 02 cannot read across a cylinder boundary, but qemu and bochs seem happy to do so
+; nanobyte doesn't bother returning the actual count read and I haven't found a case where the returned
+; count is different to the requested count.
+;
+; Returns
+;   success or failure
+;   *count will contain the number sectors read
+;
+
+global _bios_readDisk
+_bios_readDisk:
+    ; Make new stack frame
+    push bp
+    mov bp, sp
+
+    ; Save registers
+    push bx
+    push si
+    push es
+
+    ; [bp + 14] - *buffer           (4 bytes)
+    ; [bp + 12] - *count            (2 bytes)
+    ; [bp + 10] - sector            (2 bytes)
+    ; [bp + 8]  - head              (2 bytes)
+    ; [bp + 6]  - cylinder          (2 bytes)
+    ; [bp + 4]  - driveNumber       (2 bytes)
+    ; [bp + 2]  - return address    (2 bytes)
+    ; [bp + 0]  - old call frame    (2 bytes)
+
+    ;   AH = 02h
+    ;   AL = Number of sectors to read
+    ;   CX[7:6] [15:8] cylinder. Cylinders start at 0
+    ;   CX[5:0]        Sector. Sectors start at 1
+    ;       CX =       ---CH--- ---CL---
+    ;       cylinder : 76543210 98
+    ;       sector   :            543210
+    ;   DH = head   Heads start at 0
+    ;   DL = drive
+    ;   ES:BX = Destination address
+
+    mov dl, [bp + 4]    ; drive
+
+    mov ch, [bp + 6]    ; cylinder
+    mov cl, [bp + 7]
+    shr cl, 6
+
+    mov dh, [bp + 8]    ; head
+
+    mov al, [bp + 10]   ; sector
+    and al, 0x3F
+    or cl, al
+
+    mov si, [bp + 12]   ; *count
+    mov al, [si]
+
+    mov bx, [bp + 16]   ; buffer
+    mov es, bx
+    mov bx, [bp + 14]
+
+    mov ah, 0x2         ; Disk read function
+
+    stc
+    int 13h
+
+    ;   CF: Set on error, clear if no error
+    ;   AH = Return code
+    ;   AL = Number of actual sectors read
+
+    ; return success status
+    mov ax, 1
+    sbb ax, 0           ; Subtract with borrow. If CF is clear then AX = 1, otherwise AX = 0
+ 
+    mov si, [bp + 12]   ; Update *count
+    mov al, [si]
+
+    ; Restore registers
+    pop bx
+    pop si
+    pop es
+
+    ; Restore old stack frame
+    mov sp, bp
+    pop bp
+    ret
+
+;
+; bool _cdecl bios_getDriveParams(
+;                   uint8_t driveNumber,
+;                   uint16_t* numCylinders,
+;                   uint16_t* numHeads,
+;                   uint16_t* numSectors)
+;
+; Uses Int 13h 08 to obtain the geometry of the specified drive
+; Returns true/false on success/failure
+;
+
+global _bios_getDriveParams
+_bios_getDriveParams:
+    ; Make new stack frame
+    push bp
+    mov bp, sp
+
+    ; Save registers
+    push bx
+    push di
+    push si
+    push es
+
+    ; [bp + 10] - &numSectors       (2 bytes)
+    ; [bp + 8]  - &numHeads         (2 bytes)
+    ; [bp + 6]  - &numCylinders     (2 bytes)
+    ; [bp + 4]  - driveNumber       (2 bytes)
+    ; [bp + 2]  - return address    (2 bytes)
+    ; [bp + 0]  - old call frame    (2 bytes)
+
+    mov ah, 08h         ; AH = BIOS function: Read drive parameters
+    mov dl, [bp + 4]    ; DL = drive number
+    stc 
+    int 13h
+
+    ; CF set on error
+    ; DH index of last head. Add 1 since heads start at 0
+    ; CX[7:6] [15:8] index of last cylinder. Add 1 since cylinders start at 0
+    ; CX[5:0]        index of last sector. Fine as is as sectors start at 1
+    ; CX =       ---CH--- ---CL---
+    ; cylinder : 76543210 98
+    ; sector   :            543210
+    ; Also modifies AH, DL, BL, and ES:DI
+
+    ; return success status
+    mov ax, 1
+    sbb ax, 0       ; Subtract with borrow. If CF is clear then AX = 1, otherwise AX = 0
+
+    ; numCylinders
+    mov bl, ch
+    mov bh, cl
+    shr bh, 6
+    inc bx
+    mov si, [bp + 6]
+    mov [si],bx
+
+    ; numSectors
+    xor ch,ch
+    and cl,0x3F
+    mov si, [bp + 10]
+    mov [si], cx
+
+    ; numHeads
+    inc dh
+    mov si, [bp + 8]
+    mov [si], dh
+
+    ; Restore registers
+    pop bx
+    pop di
+    pop si
+    pop es
+
+    ; Restore old stack frame
+    mov sp, bp
+    pop bp
+    ret
+
+;
+; void _cdecl x86_div64_32(
+;                   uint64_t  dividend,
+;                   uint32_t  divisor,
+;                   uint64_t* quotient,
+;                   uint32_t* remainder);
 ;
 ; When compiling C files in 16 bit mode, wcc will use functions from a system library to handle
 ; division and mod of 32 bit or higher operands. Since we don't have access to those libraries,
-; we get a symbol, e.g., U8DR or U8DQ, not found error. So implement our own divide and mod code
+; at link time we get a symbol, e.g., U8DR or U8DQ, not found error.
 ;
-; 2 remainder   <- bp + 18
-; 2 quotient    <- bp + 16
-; 4 divisor     <- bp + 12
-; 8 dividend    <- bp + 4
-; 2 return offset
-; 2 old bp      <- bp
+; So we implemented our own divide and mod code
+;
 ;
 
 global _x86_div64_32
 _x86_div64_32:
-
     ; make new call frame
     push bp             ; save old call frame
     mov bp, sp          ; initialize new call frame
 
     push bx
+
+    ; [bp + 18]  - &remainder       (2 bytes)
+    ; [bp + 16]  - &quotient        (2 bytes)
+    ; [bp + 12]  - divisor          (4 bytes)
+    ; [bp + 4]   - dividend         (8 bytes)
+    ; [bp + 2]   - return address   (2 bytes - small memory model)
+    ; [bp + 0]   - old call frame   (2 bytes)
 
     ; divide upper 32 bits
     mov eax, [bp + 8]   ; eax <- upper 32 bits of dividend
@@ -76,4 +294,35 @@ _x86_div64_32:
     ; restore old call frame
     mov sp, bp
     pop bp
+    ret
+
+;
+; U4D
+;   Used by Watcom compiler to do 4 byte division and remainder
+;
+; Operation:      Unsigned 4 byte divide
+; Inputs:         DX;AX   Dividend
+;                 CX;BX   Divisor
+; Outputs:        DX;AX   Quotient
+;                 CX;BX   Remainder
+; Volatile:       none
+;
+global __U4D
+__U4D:
+    shl edx, 16         ; dx to upper half of edx
+    mov dx, ax          ; edx - dividend
+    mov eax, edx        ; eax - dividend
+    xor edx, edx
+
+    shl ecx, 16         ; cx to upper half of ecx
+    mov cx, bx          ; ecx - divisor
+
+    div ecx             ; eax - quot, edx - remainder
+    mov ebx, edx
+    mov ecx, edx
+    shr ecx, 16
+
+    mov edx, eax
+    shr edx, 16
+
     ret

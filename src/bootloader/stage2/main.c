@@ -1,17 +1,43 @@
 #include "stdtypes.h"
 #include "stdio.h"
+#include "disk.h"
+
+void end();
+
+uint8_t buffer[512] = "foo bar";
 
 void _cdecl cstart_(uint16_t bootDrive)
 {
-    int i = 12345;
-    int ni = -1;
-    int hex = 0x321;
-    int oct = 0123;
-    long l = 70000;
-    long long ll = 10000000000;
+    Disk disk;
+    uint32_t lba = 0;
+    uint8_t count = 130;
 
-    printf("Hello %% %c %s %d %d %u %x %p %o\r\n", 'x', "Boo", i, ni, ni, hex, &hex, oct);
-    printf("> %ld %lld %d %s\r\n", l, ll, i, "Yah");
+    if (!diskOpen(&disk, bootDrive)) {
+        printf("Failed to init disk\r\n");
+        end();
+    }
+
+    printf("id = %d\r\n", disk.id);
+    printf("#cylinders = %d\r\n", disk.numCylinders);
+    printf("#heads = %d\r\n", disk.numHeads);
+    printf("#sectors = %d\r\n", disk.numSectors);
+
+    if (!diskRead(&disk, lba, &count, buffer)) {
+        printf("Failed to read disk\r\n");
+        end();
+    }
+
+    printf("count = %d\r\n", count);
+
+    for (int ii = 0; ii < 16; ii++) {
+        printf("%x ", buffer[ii]);
+    }
+    printf("\r\n");
+
+    end();
+}
+
+void end() {
     for (;;)
         ;
 }

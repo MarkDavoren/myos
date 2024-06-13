@@ -3,7 +3,7 @@
 export ASM := nasm
 export ASMFLAGS := -f obj
 export CC16 := /usr/bin/watcom/binl64/wcc
-export CFLAGS16 := -4 -d3 -s -wx -ms -zl -zq
+export CFLAGS16 := -4 -d3 -s -wx -ms -zl -zq -za99
 export LD16 := /usr/bin/watcom/binl64/wlink
 
 SRC_DIR=src
