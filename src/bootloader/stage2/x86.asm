@@ -67,11 +67,11 @@ _bios_resetDisk:
 
 ;
 ; Bool _cdecl bios_readDisk(
-;                 Uint8 driveNumber,
+;                 Uint8  driveNumber,
 ;                 Uint16 cylinder,
 ;                 Uint16 head,
 ;                 Uint16 sector,
-;                 Uint8* count,
+;                 Uint8  count,
 ;                 Uint8 far* buffer
 ;                 Uint8* status);
 ;
@@ -81,6 +81,11 @@ _bios_resetDisk:
 ; Bochs will fail when destination end offset > ???. It sets CF, returns 0 in AL and 9 in AH (data boundary error)
 ; Qemu will fail if count > 128. It sets CF, returns 1 in AH (invalid param) and leaves AL unchanged
 ; Qemu will fail when destination end offset > ~FB00. It sets CF, returns 0 in AL and 9 in AH (data boundary error)
+;
+; I did have this function take a pointer to count so as to return the actual count read
+; I've found no evidence of a successful read returning anything other than the requested count
+; It was pain for the caller to have to create a temporary variable to hold the count
+; SO reverted back to passing in count directly
 ;
 ; Returns
 ;   function returns success or failure
@@ -102,7 +107,7 @@ _bios_readDisk:
 
     ; [bp + 18] - *status           (2 bytes)
     ; [bp + 14] - *buffer           (4 bytes)
-    ; [bp + 12] - *count            (2 bytes)
+    ; [bp + 12] - count             (2 bytes)
     ; [bp + 10] - sector            (2 bytes)
     ; [bp + 8]  - head              (2 bytes)
     ; [bp + 6]  - cylinder          (2 bytes)
@@ -133,8 +138,7 @@ _bios_readDisk:
     and al, 0x3F
     or cl, al
 
-    mov si, [bp + 12]   ; *count
-    mov al, [si]
+    mov al, [bp + 12]   ; count
 
     mov bx, [bp + 16]   ; buffer
     mov es, bx
@@ -147,10 +151,7 @@ _bios_readDisk:
 
     ;   CF: Set on error, clear if no error
     ;   AH = Return code
-    ;   AL = Number of actual sectors read
-
-    mov si, [bp + 12]   ; Update *count
-    mov [si], al
+    ;   AL = Number of actual sectors read. Always seems to be 0 or requested count
 
     mov si, [bp + 18]   ; Update *status
     mov [si], ah

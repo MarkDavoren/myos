@@ -6,7 +6,7 @@
 /*
  *  Initialize the Disk object for the specified drive number from BIOS details
  */
-Bool diskInit(Disk* disk, Uint8 driveNumber)
+Bool diskInit(Disk far* disk, Uint8 driveNumber)
 {
     Uint16 numCylinders, numHeads, numSectors;
 
@@ -26,9 +26,8 @@ Bool diskInit(Disk* disk, Uint8 driveNumber)
 /*
  * Read count sectors from disk starting at lba into buffer
  */
-Bool diskRead(Disk* disk, Uint32 lba, Uint8* countPtr, Uint8 far* buffer)
+Bool diskRead(Disk far* disk, Uint32 lba, Uint8 count, Uint8 far* buffer)
 {
-    Uint8 requestedCount = *countPtr;
     Uint16 cylinder, head, sector;
     Uint8 status;
     Bool ok;
@@ -37,7 +36,7 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8* countPtr, Uint8 far* buffer)
     cylinder = (lba / disk->numSectors) / disk->numHeads;
     head = (lba / disk->numSectors) % disk->numHeads;
 
-    printf("Read: lba = %lu, cylinder = %u, head = %u, sector = %u, count = %d\r\n", lba, cylinder, head, sector, *countPtr);
+    printf("Read: lba = %lu, cylinder = %u, head = %u, sector = %u, count = %d\r\n", lba, cylinder, head, sector, count);
 
     // Ralf Brown recommends trying up to three times to read with a reset between attempts
     // since the read may fail due the motor failing to spin up quickly enough
@@ -46,20 +45,12 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8* countPtr, Uint8 far* buffer)
     // On Bochs, a failed read will set *count to 0
     // On Qemu, a failed read will leave *count unchanged
     for (int retries = 0; retries < 3; retries++) {
-        *countPtr = requestedCount;
-        ok = bios_readDisk(disk->id, cylinder, head, sector, countPtr, buffer, &status);
+        ok = bios_readDisk(disk->id, cylinder, head, sector, count, buffer, &status);
         printf("OK = %x, Status = %x\r\n", ok, status);
         if (ok) {
-            if (*countPtr != requestedCount) {
-                printf("Successful short read %d of %d\r\n", *countPtr, requestedCount);
-            }
             return true;
         }
         printf("Retrying disk read...\r\n");
-
-        if (*countPtr != requestedCount) {
-            printf("Failed short read %d of %d\r\n", *countPtr, requestedCount);
-        }
 
         if (!bios_resetDisk(disk->id)) {
             printf("Reset disk %d failed \r\n", disk->id);

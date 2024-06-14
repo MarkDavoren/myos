@@ -78,12 +78,12 @@ int* putnum(int* argp, length_t length, Bool sign, int radix)
         buf[pos++] = '-';
     }
 
-    if (radix == 16) {
-        buf[pos++] = 'x';
-        buf[pos++] = '0';
-    } else if (radix == 8 && buf[pos-1] != '0') {
-        buf[pos++] = '0';
-    }
+    // if (radix == 16) {
+    //     buf[pos++] = 'x';
+    //     buf[pos++] = '0';
+    // } else if (radix == 8 && buf[pos-1] != '0') {
+    //     buf[pos++] = '0';
+    // }
 
     while (pos-- > 0) {
         putc(buf[pos]);
