@@ -3,7 +3,7 @@ bits 16
 section _TEXT class=code
 
 ;
-; void _cdecl bios_putc(char c, uint8_t page)
+; void _cdecl bios_putc(char c, Uint8 page)
 ;
 ; Uses Int 10 0E to display c on page
 ;
@@ -36,7 +36,7 @@ _bios_putc:
     ret
 
 ;
-; bool _cdecl bios_resetDisk(uint8_t driveNumber)
+; Bool _cdecl bios_resetDisk(Uint8 driveNumber)
 ;
 ; Uses Int 13h 0 to reset disk driveNUmber
 ;
@@ -66,14 +66,14 @@ _bios_resetDisk:
     ret
 
 ;
-; bool _cdecl bios_readDisk(
-;                 uint8_t driveNumber,
-;                 uint16_t cylinder,
-;                 uint16_t head,
-;                 uint16_t sector,
-;                 uint8_t* count,
-;                 uint8_t far* buffer
-;                 uint8_t* status);
+; Bool _cdecl bios_readDisk(
+;                 Uint8 driveNumber,
+;                 Uint16 cylinder,
+;                 Uint16 head,
+;                 Uint16 sector,
+;                 Uint8* count,
+;                 Uint8 far* buffer
+;                 Uint8* status);
 ;
 ; Reads count sectors starting at cylinder/head/sector of the specified drive into buffer
 ;
@@ -170,11 +170,11 @@ _bios_readDisk:
     ret
 
 ;
-; bool _cdecl bios_getDriveParams(
-;                   uint8_t driveNumber,
-;                   uint16_t* numCylinders,
-;                   uint16_t* numHeads,
-;                   uint16_t* numSectors)
+; Bool _cdecl bios_getDriveParams(
+;                   Uint8 driveNumber,
+;                   Uint16* numCylinders,
+;                   Uint16* numHeads,
+;                   Uint16* numSectors)
 ;
 ; Uses Int 13h 08 to obtain the geometry of the specified drive
 ; Returns true/false on success/failure
@@ -249,10 +249,10 @@ _bios_getDriveParams:
 
 ;
 ; void _cdecl x86_div64_32(
-;                   uint64_t  dividend,
-;                   uint32_t  divisor,
-;                   uint64_t* quotient,
-;                   uint32_t* remainder);
+;                   Uint64  dividend,
+;                   Uint32  divisor,
+;                   Uint64* quotient,
+;                   Uint32* remainder);
 ;
 ; When compiling C files in 16 bit mode, wcc will use functions from a system library to handle
 ; division and mod of 32 bit or higher operands. Since we don't have access to those libraries,

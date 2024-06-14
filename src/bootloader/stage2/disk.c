@@ -6,9 +6,9 @@
 /*
  *  Initialize the Disk object for the specified drive number from BIOS details
  */
-bool diskInit(Disk* disk, uint8_t driveNumber)
+Bool diskInit(Disk* disk, Uint8 driveNumber)
 {
-    uint16_t numCylinders, numHeads, numSectors;
+    Uint16 numCylinders, numHeads, numSectors;
 
     if (!bios_getDriveParams(driveNumber, &numCylinders, &numHeads, &numSectors)) {
         return false;
@@ -26,12 +26,12 @@ bool diskInit(Disk* disk, uint8_t driveNumber)
 /*
  * Read count sectors from disk starting at lba into buffer
  */
-bool diskRead(Disk* disk, uint32_t lba, uint8_t* countPtr, uint8_t far* buffer)
+Bool diskRead(Disk* disk, Uint32 lba, Uint8* countPtr, Uint8 far* buffer)
 {
-    uint8_t requestedCount = *countPtr;
-    uint16_t cylinder, head, sector;
-    uint8_t status;
-    bool ok;
+    Uint8 requestedCount = *countPtr;
+    Uint16 cylinder, head, sector;
+    Uint8 status;
+    Bool ok;
 
     sector = (lba % disk->numSectors) + 1;
     cylinder = (lba / disk->numSectors) / disk->numHeads;

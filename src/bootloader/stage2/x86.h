@@ -2,24 +2,24 @@
 
 #include "stdtypes.h"
 
-void _cdecl bios_putc(char c, uint8_t page);
-bool _cdecl bios_getDriveParams(
-                uint8_t driveNumber,
-                uint16_t* numCylinders,
-                uint16_t* numHeads,
-                uint16_t* numSectors);
-bool _cdecl bios_readDisk(
-                uint8_t driveNumber,
-                uint16_t cylinder,
-                uint16_t head,
-                uint16_t sector,
-                uint8_t* count,
-                uint8_t far* buffer,
-                uint8_t* status);
-bool _cdecl bios_resetDisk(uint8_t driveNumber);
+void _cdecl bios_putc(char c, Uint8 page);
+Bool _cdecl bios_getDriveParams(
+                Uint8 driveNumber,
+                Uint16* numCylinders,
+                Uint16* numHeads,
+                Uint16* numSectors);
+Bool _cdecl bios_readDisk(
+                Uint8 driveNumber,
+                Uint16 cylinder,
+                Uint16 head,
+                Uint16 sector,
+                Uint8* count,
+                Uint8 far* buffer,
+                Uint8* status);
+Bool _cdecl bios_resetDisk(Uint8 driveNumber);
 
 void _cdecl x86_div64_32(
-                uint64_t dividend,
-                uint32_t divisor,
-                uint64_t* quotient,
-                uint32_t* remainder);
+                Uint64 dividend,
+                Uint32 divisor,
+                Uint64* quotient,
+                Uint32* remainder);

@@ -17,10 +17,10 @@ void puts(const char* str)
 typedef enum length_t {NORMAL, SHORT_SHORT, SHORT, LONG, LONG_LONG} length_t;
 const char hex[16] = "0123456789ABCDEF";
 
-int* putnum(int* argp, length_t length, bool sign, int radix)
+int* putnum(int* argp, length_t length, Bool sign, int radix)
 {
     unsigned long long number;
-    bool negative = false;
+    Bool negative = false;
     int pos = 0;
     char buf[32];
 
@@ -69,7 +69,7 @@ int* putnum(int* argp, length_t length, bool sign, int radix)
     }
 
     do {
-        uint32_t rem;
+        Uint32 rem;
         x86_div64_32(number, radix, &number, &rem);
         buf[pos++] =  hex[rem];
     } while (number > 0);

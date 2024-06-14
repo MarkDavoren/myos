@@ -3,11 +3,11 @@
 #include "stdtypes.h"
 
 typedef struct {
-    uint8_t     id;
-    uint16_t    numCylinders;
-    uint16_t    numHeads;
-    uint16_t    numSectors;
+    Uint8     id;
+    Uint16    numCylinders;
+    Uint16    numHeads;
+    Uint16    numSectors;
 } Disk;
 
-bool diskInit(Disk* disk, uint8_t driveNumber);
-bool diskRead(Disk* disk, uint32_t lba, uint8_t* count, uint8_t far* data);
+Bool diskInit(Disk* disk, Uint8 driveNumber);
+Bool diskRead(Disk* disk, Uint32 lba, Uint8* count, Uint8 far* data);
