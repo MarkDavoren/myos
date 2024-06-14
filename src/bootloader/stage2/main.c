@@ -4,15 +4,15 @@
 
 void end();
 
-uint8_t buffer[512] = "foo bar";
+uint8_t far* buffer = ((void far*) 0x00508000);
 
 void _cdecl cstart_(uint16_t bootDrive)
 {
     Disk disk;
     uint32_t lba = 0;
-    uint8_t count = 130;
+    uint8_t count = 4;
 
-    if (!diskOpen(&disk, bootDrive)) {
+    if (!diskInit(&disk, bootDrive)) {
         printf("Failed to init disk\r\n");
         end();
     }

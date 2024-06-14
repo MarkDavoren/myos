@@ -72,17 +72,21 @@ _bios_resetDisk:
 ;                 uint16_t head,
 ;                 uint16_t sector,
 ;                 uint8_t* count,
-;                 uint8_t far* buffer);
+;                 uint8_t far* buffer
+;                 uint8_t* status);
 ;
 ; Reads count sectors starting at cylinder/head/sector of the specified drive into buffer
 ;
-; Supposedly Int 13h 02 cannot read across a cylinder boundary, but qemu and bochs seem happy to do so
-; nanobyte doesn't bother returning the actual count read and I haven't found a case where the returned
-; count is different to the requested count.
+; Bochs will fail when count > 72. It sets CF, returns 1 in AH (invalid param) and 0 in AL
+; Bochs will fail when destination end offset > ???. It sets CF, returns 0 in AL and 9 in AH (data boundary error)
+; Qemu will fail if count > 128. It sets CF, returns 1 in AH (invalid param) and leaves AL unchanged
+; Qemu will fail when destination end offset > ~FB00. It sets CF, returns 0 in AL and 9 in AH (data boundary error)
 ;
 ; Returns
-;   success or failure
+;   function returns success or failure
 ;   *count will contain the number sectors read
+;   *status will contain the status
+;   data will be at location pointed to by buffer
 ;
 
 global _bios_readDisk
@@ -96,6 +100,7 @@ _bios_readDisk:
     push si
     push es
 
+    ; [bp + 18] - *status           (2 bytes)
     ; [bp + 14] - *buffer           (4 bytes)
     ; [bp + 12] - *count            (2 bytes)
     ; [bp + 10] - sector            (2 bytes)
@@ -144,13 +149,16 @@ _bios_readDisk:
     ;   AH = Return code
     ;   AL = Number of actual sectors read
 
+    mov si, [bp + 12]   ; Update *count
+    mov [si], al
+
+    mov si, [bp + 18]   ; Update *status
+    mov [si], ah
+
     ; return success status
     mov ax, 1
-    sbb ax, 0           ; Subtract with borrow. If CF is clear then AX = 1, otherwise AX = 0
+    sbb ax, 0           ; Subtract with borrow. If CF is clear then AX = 1 (true), otherwise AX = 0 (false)
  
-    mov si, [bp + 12]   ; Update *count
-    mov al, [si]
-
     ; Restore registers
     pop bx
     pop si
