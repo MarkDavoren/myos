@@ -31,5 +31,5 @@
  *   0x000C8000 - 0x000FFFFF - BIOS
  */
 
-#define FAT_MEM_ADDRESS ((void far*)0x00500000)     // segment:offset (SSSSOOOO) 50:0000 = 500 linear
-#define FAT_MEM_SIZE 0x10000
+#define FAT_MEM_ADDRESS 0x00500000     // segment:offset (SSSSOOOO) 50:0000 = 500 linear
+#define FAT_MEM_SIZE    0x10000

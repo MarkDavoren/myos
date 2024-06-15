@@ -2,7 +2,7 @@
 
 OBJ_DIR :=$(BUILD_DIR)/bootloader/stage2
 
-SOURCES_C := main.c stdio.c disk.c fat.c
+SOURCES_C := main.c stdio.c disk.c fat.c utility.c ctype.c string.c
 SOURCES_A := stage2.asm x86.asm
 
 OBJECTS_C := $(patsubst %.c, $(OBJ_DIR)/%.obj, $(SOURCES_C))

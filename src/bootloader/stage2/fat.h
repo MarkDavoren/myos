@@ -3,9 +3,10 @@
 #include"stdtypes.h"
 #include "disk.h"
 
-typedef File;
+typedef Int8 Handle;
+#define BAD_HANDLE -1
 
 Bool fatInitialize(Uint8 driveNumber);
-File far* fatOpen(const char* path);
-Uint32 fatRead(File far* file, Uint32 byteCount, void far* buffer);
-void fatClose(File far* file);
+Handle fatOpen(const char* path);
+Uint32 fatRead(Handle file, Uint32 byteCount, void far* buffer);
+void fatClose(Handle file);

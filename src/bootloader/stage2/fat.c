@@ -3,8 +3,11 @@
 #include "fat.h"
 #include "memdefs.h"
 #include "disk.h"
+#include "ctype.h"
+#include "string.h"
+#include "utility.h"
 
-void convert8D3ToString(Uint8 far* name, char* out);
+#define MAX_HANDLES 10
 
 #pragma pack(push, 1)
 typedef struct 
@@ -23,18 +26,6 @@ typedef struct
     Uint16 Heads;
     Uint32 HiddenSectors;
     Uint32 LargeSectorCount;
-
-    // extended boot record
-    Uint8  DriveNumber;
-    Uint8  _Reserved;
-    Uint8  Signature;
-    Uint32 VolumeId;
-    Uint8  VolumeLabel[11];
-    Uint8  SystemId[8];
-
-    Uint8  code[448];   // To make sizeof(BootSector) == 512 bytes
-    Uint16 signature;   
-
 } BootSector;
 
 typedef struct 
@@ -51,18 +42,57 @@ typedef struct
     Uint16 modifiedDate;
     Uint16 firstClusterLow;
     Uint32 size;
-} Directory;
+} DirectoryEntry;
 
 #pragma pack(pop)
 
 typedef struct {
+    Uint8       id;                 // Handle
+    Bool        isOpened;           // If false then available for use
+    Bool        isRootDir;          // Flag for special handling to read the root directory
+    Uint16      firstCluster;       // First cluster
+    Uint16      cluster;            // Current cluster
+    Uint8       sectorInCluster;    // current sector within the current cluster
+    Uint32      remaining;          // Remaining bytes or directory entries in sector
+    Uint32      position;           // Current position in bytes or directory entries
+    Uint32      size;               // Maximum position in bytes or directory entries
+    Uint8 far*  sector;             // Buffer to hold current sector
+} File;
+
+typedef struct {
     Disk disk;
-    BootSector mbr;
-    Directory far* rootDirectory;
+    BootSector bpb;
     Uint8 far* FAT;
+    Uint32 rootDirLBA;
+    Uint16 entriesPerSector;
+    File files[MAX_HANDLES];
 } FatData;
 
-static FatData far* fatData = FAT_MEM_ADDRESS;
+static FatData far* fatData = (FatData far*)FAT_MEM_ADDRESS;
+static Uint8 far* fatSectors;
+
+/*
+ * Forward declarations
+ */
+
+void convert8D3ToString(const char far* name, char* out);
+void convertStringTo8D3(const char* name, char* out);
+Handle grabFreeHandle();
+File far* openRootDir();
+const char* getComponent(const char* path, char* component, int limit);
+Bool findFileInDirectory(const char* name, File far* dir, DirectoryEntry* foundEntry);
+File far* openFile(DirectoryEntry* entry);
+Bool readFile(File far* file, Uint32 count, Uint8 far* buff);
+
+void printDirSector(File far* dir);
+void printFAT();
+void printDirectoryEntry(DirectoryEntry far* entry);
+void printFatName(char far* fatName);
+void printFile(File far* file);
+
+/*
+ * Public functions
+ */
 
 Bool fatInitialize(Uint8 driveNumber)
 {
@@ -77,51 +107,404 @@ Bool fatInitialize(Uint8 driveNumber)
     //     fatData->disk.numHeads,
     //     fatData->disk.numSectors);
 
-    // Read in MBR
-
-    if (!diskRead(&fatData->disk, 0, 1, (Uint8 far*) &fatData->mbr)) {
+    // Read MBR into a temporary location and copy BPB from there to where we want it
+    Uint8 far* tmp = FAT_MEM_ADDRESS + sizeof(FatData);
+    if (!diskRead(&fatData->disk, 0, 1, tmp)) {
         printf("Failed to read MBR of disk %d\r\n", driveNumber);
         return false;
     }
-
-    // Read in Root Directory
-
-    Uint16 rootDirLBA = fatData->mbr.ReservedSectors + fatData->mbr.FatCount * fatData->mbr.SectorsPerFat;
-    Uint16 rootDirSizeInSectors = (fatData->mbr.DirEntryCount * sizeof(Directory) + fatData->mbr.BytesPerSector - 1) / fatData->mbr.BytesPerSector;
-    Uint16 rootDirTotalSizeInBytes = rootDirSizeInSectors * fatData->mbr.BytesPerSector;
-
-    if (sizeof(FatData) + rootDirTotalSizeInBytes > FAT_MEM_SIZE) {
-        printf("Insufficent space to load root directory. Need %x. Have %x",
-            rootDirTotalSizeInBytes, FAT_MEM_SIZE - (sizeof(FatData)));
-    }
-
-    fatData->rootDirectory = (Directory far*) (fatData + 1); // RootDirectory loaded immediately after FatData
-
-    if (!diskRead(&fatData->disk, rootDirLBA, rootDirSizeInSectors, (Uint8 far*) fatData->rootDirectory)) {
-        printf("Failed to read Root directory of disk %d\r\n", driveNumber);
-        return false;
-    }
-
-    Directory far* dir = fatData->rootDirectory;
-    for (int ii = 0; ii < fatData->mbr.DirEntryCount; ++ii, ++dir) {
-        if (dir->name[0] == '\0') {
-            continue;
-        }
-
-        char name[13]; // 8 + '.' + 3 + null
-        convert8D3ToString(dir->name, name);
-
-        printf("'%s' %x %d %ld\r\n", name, dir->attributes, dir->firstClusterLow, dir->size);
-    }
+    fatData->bpb = *(BootSector far*) tmp;
 
     // Load FAT
+    // Load the entire first FAT. TODO: This is not scalable, but will be fine for 1.44MB floppy
 
-    fatData->FAT = (Uint8 far*) (fatData->rootDirectory + fatData->mbr.DirEntryCount);
-    if (!diskRead(&fatData->disk, fatData->mbr.ReservedSectors, fatData->mbr.SectorsPerFat, (Uint8 far*) fatData->FAT)) {
+    fatData->FAT = FAT_MEM_ADDRESS + sizeof(FatData);   // Hold FAT in mem right after fatData
+    if (!diskRead(
+            &fatData->disk,
+            fatData->bpb.ReservedSectors,   // Start of FAT on disk
+            fatData->bpb.SectorsPerFat,     // Read the entire first FAT. Ignore the others as they are copies
+            (Uint8 far*) fatData->FAT)) {
         printf("Failed to read FAT of disk %d\r\n", driveNumber);
         return false;
     }
 
+    fatSectors = FAT_MEM_ADDRESS;
+    Uint32 offset = align((Uint32)(sizeof(FatData) + fatData->bpb.SectorsPerFat * fatData->bpb.BytesPerSector),
+                          (Uint32)fatData->bpb.BytesPerSector);
+    fatSectors += offset;
+
+    // Save LBA of root directory and entries/sector
+    fatData->rootDirLBA = fatData->bpb.ReservedSectors + fatData->bpb.FatCount * fatData->bpb.SectorsPerFat;
+    fatData->entriesPerSector = fatData->bpb.BytesPerSector / sizeof(DirectoryEntry);
+
+    // Initialize Files
+    for (int ii = 0; ii < MAX_HANDLES; ++ii) {
+        fatData->files[ii].isOpened = false;
+    }
+
+    return true;
+}
+
+Handle fatOpen(const char* path)
+{
+    const char* originalPath = path;
+
+    if (path == NULL || path[0] == '\0') {
+        return BAD_HANDLE;
+    }
+
+    if (path[0] != '/') {
+        printf("Failed to open file '%s': Path does not begin with a '/'\r\n", originalPath);
+        return BAD_HANDLE;
+    }
+
+    path++; // Skip root '/'
+    File far* dir = openRootDir();
+    // TODO: Loop through components
+
+    char component[13]; // 8 + '.' + 3 + null
+    path = getComponent(path, component, sizeof(component));
+    if (*path != '\0' && *path != '/') {
+        printf("Failed to open file '%s': Component '%s' is too long\r\n", originalPath, component);
+        return BAD_HANDLE;
+    }
+
+    DirectoryEntry entry;
+
+    if (!findFileInDirectory(component, dir, &entry)) {
+        printf("Failed to open file '%s': Could not find '%s'\r\n", originalPath, component);
+        return BAD_HANDLE;
+    }
+
+    printf("fatOpen: ");
+    printDirectoryEntry(&entry);
+
+    File far* file = openFile(&entry);
+
+    return file->id;
+}
+
+Uint32 fatRead(Handle handle, Uint32 count, void far* buff)
+{
+    return readFile(&fatData->files[handle], count, buff);
+}
+
+void fatClose(Handle file);
+
+File far* openFile(DirectoryEntry* entry)
+{
+    Handle handle = grabFreeHandle();
+    if (handle == BAD_HANDLE) {
+        return NULL;
+    }
+
+    File far* file = &fatData->files[handle];
+
+    file->id = handle;
+    file->isOpened = true;
+    file->isOpened = false;
+    file->firstCluster = entry->firstClusterLow;    // TODO: Handle high
+    file->cluster = 0;                              // Cause first read to read from firstCluster
+    file->sectorInCluster = 0;
+    file->remaining = 0;
+    file->position = 0;
+    file->size = entry->size;
+    file->sector = &fatSectors[handle * fatData->bpb.BytesPerSector]; // Set up space, read will be on demand
+
+    return file;
+}
+
+/*
+ * Convert an 8.3 FAT filename to a string
+ *
+ * 8.3 filenames cannot contain spaces, so if they are there skip them as they are padding
+ * The '.' and extension are optional
+ * 
+ * Caller is responsible for ensuring that out has space for at least 13 characters: 8 + '.' + 3 + null
+ */
+void convert8D3ToString(const char far* name, char* out)
+{
+    if (name[0] == '\0') {
+        *out = '\0';
+        return;
+    }
+    for (int ii = 0; ii < 8; ++ii) {
+        if (name[ii] == ' ') {
+            break;
+        }
+        *out++ = name[ii];
+    }
+    if (name[8] != ' ') {
+        *out++ = '.';
+    }
+    for (int ii = 8; ii < 11; ++ii) {
+        if (name[ii] == ' ') {
+            break;
+        }
+        *out++ = name[ii];
+    }
+    *out = '\0';
+}
+
+void convertStringTo8D3(const char* name, char* out)
+{
+    const char* originalName = name;
+    int index;
+
+    for (index = 0; *name && *name != '.' && index < 8; name++, ++index) {
+        *out++ = toUpper(*name);
+    }
+    for (; index < 8; ++index) {
+        *out++ = ' ';
+    }
+
+    if (*name != '.' && *name != '\0') {
+        printf("Invalid file name component '%s'. Truncating\r\n", originalName);
+        *out++ = ' ';
+        *out++ = ' ';
+        *out++ = ' ';
+    } else if (*name == '\0') {
+        *out++ = ' ';
+        *out++ = ' ';
+        *out++ = ' ';       
+    } else {
+        name++; // skip '.'
+        for (index = 0; *name && index < 3; name++, ++index) {
+            *out++ = toUpper(*name);
+        }
+        for (; index < 3; ++index) {
+            *out++ = ' ';
+        }
+        if (*name != '\0') {
+            printf("Invalid file name component '%s'. Truncating\r\n", originalName);
+        }
+    }
+}
+
+Handle grabFreeHandle()
+{
+    Handle handle;
+    for (handle = 0; handle < MAX_HANDLES; ++handle) {
+        if(!fatData->files[handle].isOpened) {
+            break;
+        }
+    }
+
+    if (handle == MAX_HANDLES) {
+        printf("Ran out of file handles\r\n");
+        return BAD_HANDLE;
+    }
+
+    return handle;
+}
+
+File far* openRootDir()
+{
+    int handle = grabFreeHandle();
+
+    File far* dir = &fatData->files[handle];
+    dir->id = handle;
+    dir->isOpened = true;
+    dir->isRootDir = true;
+    dir->firstCluster = 0;                      // N/A for the root dir
+    dir->cluster = 0;                           // N/A for the root dir
+    dir->sectorInCluster = 0;                   // N/A for the root dir
+    dir->remaining = 0;                         // This will cause first read to load first sector
+    dir->position = 0;                          // For directories, position is current entry#
+    dir->size = fatData->bpb.DirEntryCount;     // For directories, size is #entries
+    dir->sector = &fatSectors[handle * fatData->bpb.BytesPerSector]; // Set up space, read will be on demand
+
+    return dir;
+}
+
+const char* getComponent(const char* path, char* component, int limit)
+{
+    --limit; // Leave room for null
+
+    for (int ii = 0; *path != '\0' && *path != '/' && ii < limit; ii++) {
+        *component++ = *path++;
+    }
+    *component = '\0';
+
+    return path;
+}
+
+Bool readNextSectorFromRootDir(File far* dir)
+{
+    Uint16 sector = dir->position / (fatData->entriesPerSector);
+
+    if (!diskRead(&fatData->disk,
+                  fatData->rootDirLBA + sector,
+                  1,
+                  dir->sector)) {
+        printf("Failed to read Root directory, sector %d\r\n", sector);
+        return false;
+    }
+
+    dir->remaining = fatData->entriesPerSector;
+
+    return true;
+}
+
+Uint16 getNextClusterNumber(Uint16 current)
+{
+    Uint16 index = (current * 3) / 2;
+    Uint16 next = *(Uint16 far*)&fatData->FAT[index];
+    printf("index = %x, next=%x\r\n", index, next);
+    if ((current % 2) == 0) {
+        next &= 0xFFF;
+    } else {
+        next >>= 4;
+    }
+
+    return next;
+}
+
+Uint32 clusterToLBA(Uint16 cluster)
+{
+    return cluster + 31;    // TODO: Only works for floppy geometry and FAT12
+}
+
+Bool readNextFileSector(File far* file)
+{
+    Uint16 nextCluster;
+    if (file->cluster == 0) {
+        nextCluster = file->firstCluster;
+    } else {
+        nextCluster = getNextClusterNumber(file->cluster);
+    }
+    printf("Current cluster = 0x%x, next = 0x%x\r\n", file->cluster, nextCluster);
+
+    if (nextCluster >= 0xFF8) {
+        printf("reached end of cluster sequence\r\n");
+        return false;
+    }
+
+    Uint32 lba = clusterToLBA(nextCluster);
+    printf("lba = %ld\r\n", lba);
+
+    // TODO: Handle multiple sectors per cluster
+    if (!diskRead(&fatData->disk,
+                  lba,
+                  1,
+                  file->sector)) {
+        printf("Failed to read file, lba %d\r\n", lba);
+        return false;
+    }
+
+    file->cluster = nextCluster;
+    file->remaining = fatData->bpb.BytesPerSector;
+
+    return true;
+}
+
+Bool readNextSector(File far* dir)
+{
+    if (dir->isRootDir) {
+        return readNextSectorFromRootDir(dir);
+    } else {
+        return readNextFileSector(dir);
+    }
+}
+
+Bool readDirEntry(File far* dir, DirectoryEntry* entry)
+{
+    printf("RDE: ");
+    printFile(dir);
+
+    int entriesRemaining = dir->size - dir->position;
+    if (entriesRemaining == 0) {
+        printf("Searched through all entries\r\n");
+        return false;
+    }
+
+    if (dir->remaining == 0) {
+        if(!readNextSector(dir)) {
+            return false;
+        }
+    }
+
+    *entry = ((DirectoryEntry far*) (dir->sector))[dir->position++];
+    dir->remaining--;
+
+    printDirectoryEntry(entry);
+
+    return true;
+}
+
+Bool readFile(File far* file, Uint32 count, Uint8 far* buff)
+{
+    printf("Requesting to read %ld bytes from file\r\n", count);
+    
+    int bytesRemaining = file->size - file->position;
+    if (bytesRemaining == 0) {
+        printf("Reached EOF\r\n");
+        return 0;
+    }
+
+    if (file->remaining == 0) {
+        printf("Remaining == 0\r\n");
+        if(!readNextSector(file)) {
+            return false;
+        }
+    }
+
+    if (file->remaining < count) {
+        printf("Split reads not implemented yet %ld %ld\r\n", file->remaining, count);
+        return 0;
+    }
+
+    if (count > bytesRemaining) {
+        count = bytesRemaining;
+    }
+
+    Uint16 offset = fatData->bpb.BytesPerSector - file->remaining;
+    printf("Copying %ld bytes, from %lx to %lx\r\n", count, file->sector + offset, buff);
+    memcpy(buff, file->sector + offset, count);
+
+    file->position += count;
+    file->remaining -= count;
+
+    return count;
+}
+
+/*
+ * Assumes dir is newly opened and hence position == 0
+ */
+Bool findFileInDirectory(const char* name, File far* dir, DirectoryEntry* foundEntry)
+{
+    if (name == NULL || name[0] == '\0') {
+        return false;
+    }
+
+    char fatName[11];
+    convertStringTo8D3(name, fatName);
+
+    DirectoryEntry entry;
+    while (readDirEntry(dir, &entry)) {
+        if (entry.name[0] == '\0') {
+            continue;
+        }
+        printf("Comparing ");
+        printFatName(entry.name);
+        printf(" to ");
+        printFatName(fatName);
+        printf("\r\n");
+        if (memcmp(entry.name, fatName, 11) == 0) {
+            *foundEntry = entry;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/*
+ * Debugging functions
+ */
+
+void printFAT()
+{
     // In FAT 12, cluster numbers in the FAT are 12 bits long
     // So multiply the cluster number by 3/2 to get a word index into the FAT
     // If the cluster number is even, we want the bottom 12 bits
@@ -143,43 +526,48 @@ Bool fatInitialize(Uint8 driveNumber)
         printf("%x ", value);
     }
     printf("\r\n");
-
-
-
-    return true;
 }
 
-File far* fatOpen(const char* path);
-Uint32 fatRead(File far* file, Uint32 byteCount, void far* buffer);
-void fatClose(File far* file);
+void printDirSector(File far* dir)
+{
+    DirectoryEntry far* entry = (DirectoryEntry far*) dir->sector;
+    printf("entry = %lx\r\n", entry);
+    for (int ii = 0; ii < fatData->bpb.BytesPerSector / sizeof(DirectoryEntry); ii++, entry++) {
+        if (entry->name[0] == '\0') {
+            continue;
+        }
+        printDirectoryEntry(entry);
+    }
+}
 
-/*
- * Convert an 8.3 FAT filename to a string
- *
- * 8.3 filenames cannot contain spaces, so if they are there skip them as they are padding
- * The '.' and extension are optional
- * 
- * Caller is responsible for ensuring that out has space for at least 13 characters: 8 + '.' + 3 + null
- */
-void convert8D3ToString(Uint8 far* name, char* out) {
-    if (name[0] == '\0') {
-        *out = '\0';
-        return;
-    }
-    for (int ii = 0; ii < 8; ++ii) {
-        if (name[ii] == ' ') {
-            break;
-        }
-        *out++ = name[ii];
-    }
-    if (name[8] != ' ') {
-        *out++ = '.';
-    }
-    for (int ii = 8; ii < 11; ++ii) {
-        if (name[ii] == ' ') {
-            break;
-        }
-        *out++ = name[ii];
-    }
-    *out = '\0';
+void printDirectoryEntry(DirectoryEntry far* entry)
+{
+    printf("Directory Entry @ %lx:", entry);
+    printFatName(entry->name);
+    printf(" attr=%x first=%x size=%ld\r\n", entry->attributes, entry->firstClusterLow, entry->size);
+
+}
+
+void printFatName(char far* fatName)
+{
+    char name[13]; // 8 + '.' + 3 + null
+    convert8D3ToString(fatName, name);
+
+    printf("'%s'", name);
+}
+
+void printFile(File far* file)
+{
+    printf("File @ %lx: id = %d, isOpened=%d, isRootDir=%d, first=%d, cluster=%d, sic=%d, rem=%ld, pos=%ld, size=%ld, sector=%lx\r\n",
+        file,
+        file->id,
+        file->isOpened,
+        file->isRootDir,
+        file->firstCluster,
+        file->cluster,
+        file->sectorInCluster,
+        file->remaining,
+        file->position,
+        file->size,
+        file->sector);
 }
