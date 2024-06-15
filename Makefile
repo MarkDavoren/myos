@@ -25,8 +25,10 @@ $(BUILD_DIR)/main_floppy.img: $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin
     mkfs.fat -F 12 -n "MYOS" $(BUILD_DIR)/main_floppy.img
     dd if=$(BUILD_DIR)/stage1.bin of=$(BUILD_DIR)/main_floppy.img conv=notrunc
     mcopy -i $(BUILD_DIR)/main_floppy.img $(BUILD_DIR)/stage2.bin "::stage2.bin"
-    mcopy -i $(BUILD_DIR)/main_floppy.img test.txt "::test.txt"
-#    mcopy -i $(BUILD_DIR)/main_floppy.img $(BUILD_DIR)/kernel.bin "::kernel.bin"
+    mcopy -i $(BUILD_DIR)/main_floppy.img test.txt "::test1.txt"
+    mcopy -i $(BUILD_DIR)/main_floppy.img test2.txt "::test2.txt"
+    mmd -i $(BUILD_DIR)/main_floppy.img "::subdir"
+    mcopy -i $(BUILD_DIR)/main_floppy.img test.txt "::subdir/test3.txt"
 	
 $(SUBDIRS):
     $(MAKE) -C $(SRC_DIR)/$@ BUILD_DIR=$(abspath $(BUILD_DIR)) $(MAKECMDGOALS)
