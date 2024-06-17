@@ -12,21 +12,21 @@
 #pragma pack(push, 1)
 typedef struct 
 {
-    Uint8  BootJumpInstruction[3];
-    Uint8  OemIdentifier[8];
-    Uint16 BytesPerSector;
-    Uint8  SectorsPerCluster;
-    Uint16 ReservedSectors;
+    Uint8  bootJumpInstruction[3];
+    Uint8  oemIdentifier[8];
+    Uint16 bytesPerSector;
+    Uint8  sectorsPerCluster;
+    Uint16 reservedSectors;
     Uint8  FatCount;
-    Uint16 DirEntryCount;
-    Uint16 TotalSectors;
-    Uint8  MediaDescriptorType;
-    Uint16 SectorsPerFat;
-    Uint16 SectorsPerTrack;
-    Uint16 Heads;
-    Uint32 HiddenSectors;
-    Uint32 LargeSectorCount;
-} BootSector;
+    Uint16 dirEntriesCount;
+    Uint16 totalSectors;
+    Uint8  mediaDescriptorType;
+    Uint16 sectorsPerFat;
+    Uint16 sectorsPerTrack;
+    Uint16 heads;
+    Uint32 hiddenSectors;
+    Uint32 largeSectorCount;
+} BiosParameterBlock;
 
 typedef struct 
 {
@@ -43,7 +43,6 @@ typedef struct
     Uint16 firstClusterLow;
     Uint32 size;
 } DirectoryEntry;
-
 #pragma pack(pop)
 
 typedef struct {
@@ -61,15 +60,16 @@ typedef struct {
 } File;
 
 typedef struct {
-    Disk disk;
-    BootSector bpb;
-    Uint8 far* FAT;
-    Uint32 rootDirLBA;
-    File files[MAX_HANDLES];
+    Disk        disk;               // Disk geometry details
+    BiosParameterBlock  bpb;        // BIOS Parameter Block
+    Uint8 far*  FAT;                // Address of File Allocation Table
+    Uint32      rootDirLBA;         // LBA of root directory
+    Uint32      clusterBaseLBA;     // LBA of cluster table
+    Uint8 far*  dataSectors;        // Address of storage holding a sector for each files entry
+    File        files[MAX_HANDLES]; // Array of Files. One for each possible handle value
 } FatData;
 
-static FatData far* fatData = (FatData far*)FAT_MEM_ADDRESS;
-static Uint8 far* fatSectors;
+static FatData far* fat = (FatData far*) FAT_MEM_ADDRESS;
 
 /*
  * Forward declarations
@@ -86,7 +86,7 @@ Bool readDirEntry(File far* dir, DirectoryEntry* entry);
 Bool readNextSector(File far* dir);
 Bool readNextSectorFromRootDir(File far* dir);
 Bool readNextSectorFromFile(File far* file);
-Uint32 getNextClusterNumber(Uint16 current);
+Uint16 getNextClusterNumber(Uint16 current);
 Uint32 clusterToLBA(Uint32 cluster);
 void convert8D3ToString(const char far* name, char* out);
 void convertStringTo8D3(const char* name, char* out);
@@ -105,121 +105,119 @@ Bool fatInitialize(Uint8 driveNumber)
 {
     // Initialize disk
 
-    if (!diskInit(&fatData->disk, driveNumber)) {
+    if (!diskInit(&fat->disk, driveNumber)) {
         printf("Failed to initialize disk %d\r\n", driveNumber);
         return false;
     }
     // printf("Cylinders = %d, Heads = %d, Sectors = %d\r\n",
-    //     fatData->disk.numCylinders,
-    //     fatData->disk.numHeads,
-    //     fatData->disk.numSectors);
+    //     fat->disk.numCylinders,
+    //     fat->disk.numHeads,
+    //     fat->disk.numSectors);
 
     // Read MBR into a temporary location and copy BPB from there to where we want it
-    Uint8 far* tmp = FAT_MEM_ADDRESS + sizeof(FatData);
-    if (!diskRead(&fatData->disk, 0, 1, tmp)) {
+    Uint8 far* tmp = (Uint8 far*) (FAT_MEM_ADDRESS + sizeof(FatData));
+    if (!diskRead(&fat->disk, 0, 1, tmp)) {
         printf("Failed to read MBR of disk %d\r\n", driveNumber);
         return false;
     }
-    fatData->bpb = *(BootSector far*) tmp;
+    fat->bpb = *(BiosParameterBlock far*) tmp;
 
     // Load FAT
     // Load the entire first FAT. TODO: This is not scalable, but will be fine for 1.44MB floppy
 
-    fatData->FAT = FAT_MEM_ADDRESS + sizeof(FatData);   // Hold FAT in mem right after fatData
+    fat->FAT = (Uint8 far*) (FAT_MEM_ADDRESS + sizeof(FatData));   // Hold FAT in mem right after fat
     if (!diskRead(
-            &fatData->disk,
-            fatData->bpb.ReservedSectors,   // Start of FAT on disk
-            fatData->bpb.SectorsPerFat,     // Read the entire first FAT. Ignore the others as they are copies
-            (Uint8 far*) fatData->FAT)) {
+            &fat->disk,
+            fat->bpb.reservedSectors,   // Start of FAT on disk
+            fat->bpb.sectorsPerFat,     // Read the entire first FAT. Ignore the others as they are copies
+            (Uint8 far*) fat->FAT)) {
         printf("Failed to read FAT of disk %d\r\n", driveNumber);
         return false;
     }
 
-    fatSectors = FAT_MEM_ADDRESS;
-    Uint32 offset = align((Uint32)(sizeof(FatData) + fatData->bpb.SectorsPerFat * fatData->bpb.BytesPerSector),
-                          (Uint32)fatData->bpb.BytesPerSector);
-    fatSectors += offset;
+    fat->dataSectors = (Uint8 far*) FAT_MEM_ADDRESS;
+    Uint32 offset = align((Uint32)(sizeof(FatData) + fat->bpb.sectorsPerFat * fat->bpb.bytesPerSector),
+                          (Uint32)fat->bpb.bytesPerSector);
+    fat->dataSectors += offset;
 
     // Save LBA of root directory and entries/sector
-    fatData->rootDirLBA = fatData->bpb.ReservedSectors + fatData->bpb.FatCount * fatData->bpb.SectorsPerFat;
+    fat->rootDirLBA = fat->bpb.reservedSectors + fat->bpb.FatCount * fat->bpb.sectorsPerFat;
+
+    Uint32 rootDirSizeInBytes = fat->bpb.dirEntriesCount * sizeof(DirectoryEntry);
+    Uint32 rootDirSizeInSectors = (rootDirSizeInBytes + fat->bpb.bytesPerSector - 1) / fat->bpb.bytesPerSector;
+    fat->clusterBaseLBA = fat->rootDirLBA + rootDirSizeInSectors;
 
     // Initialize Files
     for (int ii = 0; ii < MAX_HANDLES; ++ii) {
-        fatData->files[ii].isOpened = false;
+        fat->files[ii].isOpened = false;
     }
 
     return true;
 }
-    DirectoryEntry entry;
 
 Handle fatOpen(const char* path)
 {
-    const char* originalPath = path;
-    File far* dir;
-    File far* file;
-
     if (path == NULL || path[0] == '\0') {
         return BAD_HANDLE;
     }
 
     if (path[0] != '/') {
-        printf("Failed to open file '%s': Path does not begin with a '/'\r\n", originalPath);
+        printf("Failed to open file '%s': Path does not begin with a '/'\r\n", path);
         return BAD_HANDLE;
     }
 
-    path++; // Skip root '/'
-    dir = openRootDir();
+    const char* originalPath = path;
+    File far* file = openRootDir();
 
-    if (*path == '\0') {
-        // Caller asked to open "/"
-        file = dir;
-    }
- 
+    path++; // Skip root '/'
+
     while (*path != '\0') {
         char component[13]; // 8 + '.' + 3 + null
         path = getComponent(path, component, sizeof(component));
         if (*path != '\0' && *path != '/') {
             printf("Failed to open file '%s': Component '%s' is too long\r\n", originalPath, component);
-            closeFile(dir);
+            closeFile(file);
             return BAD_HANDLE;
         }
 
-
-        if (!findFileInDirectory(component, dir, &entry)) {
+        printf("Looking...\r\n");
+        DirectoryEntry entry;
+        if (!findFileInDirectory(component, file, &entry)) {
             printf("Failed to open file '%s': Could not find '%s'\r\n", originalPath, component);
-            closeFile(dir);
+            closeFile(file);
             return BAD_HANDLE;
         }
 
         printf("fatOpen: ");
         printDirectoryEntry(&entry);
 
-        closeFile(dir);                     // close parent directory
-        File far* file = openFile(&entry);  // open child (file or dir)
+        closeFile(file);                     // close parent directory
+        file = openFile(&entry);  // open child (file or dir)
+        printf("FO: ");
+        printFile(file);
 
         if (*path == '\0') {
             break;
         }
 
         path++;     // skip '/'
-        dir = file;
-        if (!dir->isDir) {
+        if (!file->isDir) {
             printf("Failed to open file '%s': Component '%s' is not a directory\r\n", originalPath, component);
-            closeFile(dir);
+            closeFile(file);
         }
     }
-    printf("fatOpen returning\r\n");
+    printf("fatOpen returning id=%d\r\n", file->id);
     return file->id;
 }
 
 Uint32 fatRead(Handle handle, Uint32 count, void far* buff)
 {
-    return readFile(&fatData->files[handle], count, buff);
+    return readFile(&fat->files[handle], count, buff);
 }
 
 void fatClose(Handle handle)
 {
-    closeFile(&fatData->files[handle]);
+    closeFile(&fat->files[handle]);
 }
 
 /*
@@ -230,7 +228,7 @@ File far* openRootDir()
 {
     int handle = getFreeHandle();
 
-    File far* dir = &fatData->files[handle];
+    File far* dir = &fat->files[handle];
     dir->id = handle;
     dir->isOpened = true;
     dir->isRootDir = true;
@@ -240,8 +238,8 @@ File far* openRootDir()
     dir->sectorInCluster = 0;                   // N/A for the root dir
     dir->remaining = 0;                         // This will cause first read to load first sector
     dir->position = 0;                          // For directories, position is current entry#
-    dir->size = fatData->bpb.DirEntryCount * fatData->bpb.BytesPerSector;
-    dir->sector = &fatSectors[handle * fatData->bpb.BytesPerSector]; // Set up space, read will be on demand
+    dir->size = fat->bpb.dirEntriesCount * fat->bpb.bytesPerSector;
+    dir->sector = &fat->dataSectors[handle * fat->bpb.bytesPerSector]; // Set up space, read will be on demand
 
     return dir;
 }
@@ -253,7 +251,7 @@ File far* openFile(DirectoryEntry* entry)
         return NULL;
     }
 
-    File far* file = &fatData->files[handle];
+    File far* file = &fat->files[handle];
 
     file->id = handle;
     file->isOpened = true;
@@ -265,7 +263,7 @@ File far* openFile(DirectoryEntry* entry)
     file->remaining = 0;                        // Will get reset upon first read
     file->position = 0;
     file->size = entry->size;
-    file->sector = &fatSectors[handle * fatData->bpb.BytesPerSector]; // Set up space, read will be on demand
+    file->sector = &fat->dataSectors[handle * fat->bpb.bytesPerSector]; // Set up space, read will be on demand
 
     printf("Opened handle %d\r\n", handle);
     return file;
@@ -273,10 +271,11 @@ File far* openFile(DirectoryEntry* entry)
 
 Uint32 readFile(File far* file, Uint32 count, Uint8 far* buff)
 {
-    printf("Requesting to read %ld bytes from file\r\n", count);
+    printf("Requesting to read %ld bytes from file %d\r\n", count, file->id);
+    printFile(file);
     
     Uint32 remaining = file->size - file->position;    // remaining bytes in whole file
-    if (remaining == 0) {
+    if (!file->isDir && remaining == 0) {
         printf("Reached EOF\r\n");
         return 0;
     }
@@ -290,7 +289,7 @@ Uint32 readFile(File far* file, Uint32 count, Uint8 far* buff)
     while (count > 0) {
         if (file->remaining == 0) {                     // remaining bytes in sector
             if(!readNextSector(file)) {
-                // This shouldn't happen: Can't get next sector, but we are not at the EOF!?
+                // This can happen when reading from subdirectories since size == 0
                 return totalRead;
             }
         }
@@ -300,7 +299,7 @@ Uint32 readFile(File far* file, Uint32 count, Uint8 far* buff)
             actual = file->remaining;
         }
 
-        Uint16 offset = fatData->bpb.BytesPerSector - file->remaining;
+        Uint16 offset = fat->bpb.bytesPerSector - file->remaining;
         printf("Copying %ld bytes, from %lx to %lx\r\n", actual, file->sector + offset, buff);
         memcpy(buff, file->sector + offset, actual);
 
@@ -323,7 +322,7 @@ Handle getFreeHandle()
 {
     Handle handle;
     for (handle = 0; handle < MAX_HANDLES; ++handle) {
-        if(!fatData->files[handle].isOpened) {
+        if(!fat->files[handle].isOpened) {
             break;
         }
     }
@@ -361,7 +360,7 @@ Bool findFileInDirectory(const char* name, File far* dir, DirectoryEntry* foundE
     convertStringTo8D3(name, fatName);
 
     DirectoryEntry entry;
-    for (int ii = 0; readDirEntry(dir, &entry) && ii < 5; ++ii) {
+    while (readDirEntry(dir, &entry)) {
         if (entry.name[0] == '\0') {
             continue;
         }
@@ -384,19 +383,13 @@ Bool readDirEntry(File far* dir, DirectoryEntry* entry)
     printf("RDE: ");
     printFile(dir);
 
-    int remaining = dir->size - dir->position;      // remaining bytes in whole file
-    if (remaining == 0) {
-        printf("Searched through all entries\r\n");
-        return false;
-    }
-
     if (dir->remaining == 0) {                      // remaining bytes in sector
         if(!readNextSector(dir)) {
             return false;
         }
     }
 
-    *entry = *((DirectoryEntry far*) (dir->sector + (dir->position % fatData->bpb.BytesPerSector)));
+    *entry = *((DirectoryEntry far*) (dir->sector + (dir->position % fat->bpb.bytesPerSector)));
     dir->position  += sizeof(DirectoryEntry);
     dir->remaining -= sizeof(DirectoryEntry);
 
@@ -416,17 +409,17 @@ Bool readNextSector(File far* dir)
 
 Bool readNextSectorFromRootDir(File far* dir)
 {
-    Uint16 sector = dir->position / fatData->bpb.BytesPerSector;
+    Uint16 sector = dir->position / fat->bpb.bytesPerSector;
 
-    if (!diskRead(&fatData->disk,
-                  fatData->rootDirLBA + sector,
+    if (!diskRead(&fat->disk,
+                  fat->rootDirLBA + sector,
                   1,
                   dir->sector)) {
         printf("Failed to read Root directory, sector %d\r\n", sector);
         return false;
     }
 
-    dir->remaining = fatData->bpb.BytesPerSector;
+    dir->remaining = fat->bpb.bytesPerSector;
 
     return true;
 }
@@ -434,12 +427,19 @@ Bool readNextSectorFromRootDir(File far* dir)
 Bool readNextSectorFromFile(File far* file)
 {
     Uint32 nextCluster;
+
+    // TODO: Untested case where sectors per cluster is > 1. It never happens in FAT12
     if (file->cluster == 0) {
         nextCluster = file->firstCluster;
+        file->sectorInCluster = 0;
+    } else if (file->sectorInCluster < fat->bpb.sectorsPerCluster) {
+        nextCluster = file->cluster;
+        file->sectorInCluster++;
     } else {
         nextCluster = getNextClusterNumber(file->cluster);
+        file->sectorInCluster = 0;
     }
-    printf("Current cluster = 0x%lx, next = 0x%lx\r\n", file->cluster, nextCluster);
+    printf("Current cluster = 0x%lx, sic = 0x%x, next = 0x%lx\r\n", file->cluster, file->sectorInCluster, nextCluster);
 
     if (nextCluster >= 0xFF8) {
         printf("reached end of cluster sequence\r\n");
@@ -448,9 +448,8 @@ Bool readNextSectorFromFile(File far* file)
 
     Uint32 lba = clusterToLBA(nextCluster);
 
-    // TODO: Handle multiple sectors per cluster
-    if (!diskRead(&fatData->disk,
-                  lba,
+    if (!diskRead(&fat->disk,
+                  lba + file->sectorInCluster,
                   1,
                   file->sector)) {
         printf("Failed to read file, lba %d\r\n", lba);
@@ -458,15 +457,15 @@ Bool readNextSectorFromFile(File far* file)
     }
 
     file->cluster = nextCluster;
-    file->remaining = fatData->bpb.BytesPerSector;
+    file->remaining = fat->bpb.bytesPerSector;
 
     return true;
 }
 
-Uint32 getNextClusterNumber(Uint16 current)
+Uint16 getNextClusterNumber(Uint16 current)
 {
     Uint16 index = (current * 3) / 2;
-    Uint16 next = *(Uint16 far*)&fatData->FAT[index];
+    Uint16 next = *(Uint16 far*)&fat->FAT[index];
     //printf("index = 0x%x, next=0x%x\r\n", index, next);
     if ((current % 2) == 0) {
         next &= 0xFFF;
@@ -479,7 +478,13 @@ Uint32 getNextClusterNumber(Uint16 current)
 
 Uint32 clusterToLBA(Uint32 cluster)
 {
-    return cluster + 31;    // TODO: Only works for floppy geometry and FAT12
+    Uint32 lba = fat->clusterBaseLBA + (cluster - 2) * fat->bpb.sectorsPerCluster;
+    // TODO: Check lba calculations
+    if (lba != cluster + 31) {
+        printf("lba = %lx, cluster = %ls\r\n", lba, cluster);
+        end();
+    }
+    return lba;
 }
 
 /*
@@ -561,14 +566,13 @@ void printFAT()
     // Otherwise we want the top 12 bits
 
     for (Uint16 index = 0; index < 16; ++index) {
-        printf("%x ", fatData->FAT[index]);
+        printf("%x ", fat->FAT[index]);
     }
     printf("\r\n");
 
-    // For FAT12, clusterHigh is always zero, so 16 bits is enough
-    for (Uint16 cluster = 0; cluster < 16; ++cluster) {
+    for (Uint32 cluster = 0; cluster < 16; ++cluster) {
         Uint16 index = (cluster * 3) / 2;
-        Uint16 value = *(Uint16 far*)&fatData->FAT[index];
+        Uint16 value = *(Uint16 far*)&fat->FAT[index];
         if ((cluster % 2) == 0) {
             value &= 0xFFF;
         } else {
@@ -583,7 +587,7 @@ void printDirSector(File far* dir)
 {
     DirectoryEntry far* entry = (DirectoryEntry far*) dir->sector;
     printf("entry = %lx\r\n", entry);
-    for (int ii = 0; ii < fatData->bpb.BytesPerSector / sizeof(DirectoryEntry); ii++, entry++) {
+    for (int ii = 0; ii < fat->bpb.bytesPerSector / sizeof(DirectoryEntry); ii++, entry++) {
         if (entry->name[0] == '\0') {
             continue;
         }

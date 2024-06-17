@@ -2,6 +2,7 @@
 #include "stdio.h"
 #include "disk.h"
 #include "fat.h"
+#include "utility.h"
 
 void end();
 
@@ -15,7 +16,7 @@ void _cdecl cstart_(Uint16 bootDrive)
 
     printf("FAT initialized\r\n");
 
-    Handle fin = fatOpen("/subdir/test3.txt");
+    Handle fin = fatOpen("/test1.txt");
 
     printFileContents(fin);
 
@@ -31,13 +32,8 @@ void printFileContents(Handle fin)
 
     char buff[100];
     Uint32 count;
-    while ((count = fatRead(fin, 100, buff)) == 100) {
+    while ((count = fatRead(fin, 100, buff)) > 0) {
         buff[count] = '\0';
         printf("%s\r\n", buff);
     }
-}
-
-void end() {
-    for (;;)
-        ;
 }

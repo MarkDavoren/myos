@@ -9,3 +9,9 @@ Uint32 align(Uint32 number, Uint32 alignTo)
     Uint32 rem = number % alignTo;
     return (rem > 0) ? (number + alignTo - rem) : number;
 }
+
+void end()
+{
+    for (;;)
+        ;
+}
