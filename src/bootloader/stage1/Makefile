@@ -1,14 +1,9 @@
-.RECIPEPREFIX := $() $()
-
 .PHONY: all
 
-all: build $(BUILD_DIR)/stage1.bin
+all: $(BUILD_DIR)/stage1.bin
 
 $(BUILD_DIR)/stage1.bin: stage1.asm
-    $(ASM) stage1.asm -f bin -o $(BUILD_DIR)/stage1.bin
-
-build:
-    mkdir -p $(BUILD_DIR)
+	$(ASM) stage1.asm -f bin -o $(BUILD_DIR)/stage1.bin
 
 clean:
-    rm -f $(BUILD_DIR)/stage1.bin
+	rm -f $(BUILD_DIR)/stage1.bin

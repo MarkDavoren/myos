@@ -1,47 +1,56 @@
-.RECIPEPREFIX := $() $()
+include build_scripts/config.mk
 
-export ASM := nasm
-export ASMFLAGS := -f obj
-export CC16 := /usr/bin/watcom/binl64/wcc
-export CFLAGS16 := -4 -d3 -s -wx -ms -zl -zq -za99
-export LD16 := /usr/bin/watcom/binl64/wlink
+.PHONY: all floppy_image clean always
 
-SRC_DIR=src
-BUILD_DIR=build
+all: always floppy_image
 
-SUBDIRS := bootloader
-
-.PHONY: all build floppy_image bootloader kernel clean
-
-all: build floppy_image
+include build_scripts/toolchain.mk
 
 #
 # Floppy image
 #
-floppy_image: $(SUBDIRS) $(BUILD_DIR)/main_floppy.img
+floppy_image: $(BUILD_DIR)/main_floppy.img
 
-$(BUILD_DIR)/main_floppy.img: $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin
-    dd if=/dev/zero of=$(BUILD_DIR)/main_floppy.img bs=512 count=2880
-    mkfs.fat -F 12 -n "MYOS" $(BUILD_DIR)/main_floppy.img
-    dd if=$(BUILD_DIR)/stage1.bin of=$(BUILD_DIR)/main_floppy.img conv=notrunc
-    mcopy -i $(BUILD_DIR)/main_floppy.img $(BUILD_DIR)/stage2.bin "::stage2.bin"
-    mcopy -i $(BUILD_DIR)/main_floppy.img test.txt "::test1.txt"
-    mcopy -i $(BUILD_DIR)/main_floppy.img test2.txt "::test2.txt"
+FLOPPY_COMPONENTS := $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin #$(BUILD_DIR)/kernel.bin
 
-    mmd -i $(BUILD_DIR)/main_floppy.img "::subdir"
-    mcopy -i $(BUILD_DIR)/main_floppy.img test.txt "::subdir/test3.txt"
-	
-$(SUBDIRS):
-    $(MAKE) -C $(SRC_DIR)/$@ BUILD_DIR=$(abspath $(BUILD_DIR)) $(MAKECMDGOALS)
+$(BUILD_DIR)/main_floppy.img: $(FLOPPY_COMPONENTS)
+	@dd if=/dev/zero of=$@ bs=512 count=2880 >/dev/null
+	@mkfs.fat -F 12 -n "NBOS" $@ >/dev/null
+	@dd if=$(BUILD_DIR)/stage1.bin of=$@ conv=notrunc >/dev/null
+	@mcopy -i $@ $(BUILD_DIR)/stage2.bin "::stage2.bin"
+#	@mcopy -i $@ $(BUILD_DIR)/kernel.bin "::kernel.bin"
+	@mcopy -i $@ test.txt "::test.txt"
+	@mmd -i $@ "::mydir"
+	@mcopy -i $@ test.txt "::mydir/test.txt"
+	@echo "--> Created: " $@
 
 #
-# Setup build
+# Bootloader
 #
-build:
-    mkdir -p $(BUILD_DIR)
+$(BUILD_DIR)/stage1.bin: always
+	$(MAKE) -C src/bootloader/stage1 BUILD_DIR=$(abspath $(BUILD_DIR))
+
+$(BUILD_DIR)/stage2.bin: always
+	$(MAKE) -C src/bootloader/stage2 BUILD_DIR=$(abspath $(BUILD_DIR))
+
+#
+# Kernel
+#
+$(BUILD_DIR)/kernel.bin: always
+	@$(MAKE) -C src/kernel BUILD_DIR=$(abspath $(BUILD_DIR))
+
+#
+# Always
+#
+always:
+	mkdir -p $(BUILD_DIR)
 
 #
 # Clean
 #
 clean:
-    rm -rf $(BUILD_DIR)
+	@$(MAKE) -C src/bootloader/stage1 BUILD_DIR=$(abspath $(BUILD_DIR)) clean
+	@$(MAKE) -C src/bootloader/stage2 BUILD_DIR=$(abspath $(BUILD_DIR)) clean
+	@$(MAKE) -C src/kernel BUILD_DIR=$(abspath $(BUILD_DIR)) clean
+	rm -f $(BUILD_DIR)/main_floppy.img
+	rmdir $(BUILD_DIR)
