@@ -2,9 +2,78 @@
 #include "stdio.h"
 #include "x86.h"
 
+const unsigned SCREEN_WIDTH = 80;
+const unsigned SCREEN_HEIGHT = 24;
+const unsigned DEFAULT_COLOR = 0x7;
+
+Uint8* screen = (Uint8*) 0xB8000;
+int currentX = 0, currentY = 0;
+
+void putChar(int x, int y, char c)
+{
+    screen[2 * (y * SCREEN_WIDTH + x)] = c;
+}
+
+void putColor(int x, int y, Uint8 color)
+{
+        screen[2 * (y * SCREEN_WIDTH + x) + 1] = color;
+}
+
+void setCursor(int x, int y)
+{
+    // TODO
+}
+
+void clearScreen()
+{
+    for (int yy = 0; yy < SCREEN_HEIGHT; ++yy)
+        for (int xx = 0; xx < SCREEN_WIDTH; ++xx) {
+            putChar(xx, yy, '\0');
+            putColor(xx, yy, DEFAULT_COLOR);
+    }
+    currentX = 0;
+    currentY = 0;
+    setCursor(0, 0);
+}
+
+void scroll(int numLines)
+{
+    // TODO
+}
+
 void putc(char c)
 {
-    bios_putc(c, 0);
+    switch (c) {
+    case '\n':
+        currentY++;
+        break;
+    
+    case '\r':
+        currentX = 0;
+        break;
+    
+    case '\t':
+        for (int ii = 0; ii < 4 - (currentX % 4); ++ii) {
+            putc(' ');
+        }
+        break;
+    
+    default:
+        putChar(currentX, currentY, c);
+        currentX++;
+        break;
+    }
+
+    if (currentX >= SCREEN_WIDTH) {
+        currentX = 0;
+        currentY++;
+    }
+
+    if (currentY >= SCREEN_HEIGHT) {
+        scroll(1);
+    }
+
+    setCursor(currentX, currentY);
 }
 
 void puts(const char* str)

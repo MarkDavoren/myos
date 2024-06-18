@@ -147,6 +147,9 @@ start:
     retf                ; A far return will load both CS and IP from the stack
 .zero_cs:
 
+    mov si, hello_msg
+    call puts
+
     ; Since the media might have been created by a different BIOS
     ; we can't trust the values for sectors_per_track and heads in the MBR
     ; Get them from the current BIOS
@@ -517,6 +520,7 @@ halt:
 
 disk_failure_msg: db 'Disk operation failed!', ENDL, 0
 stage2_not_found_msg: db 'STAGE2.BIN not found!', ENDL, 0
+hello_msg: db 'Hello', ENDL, 0
 
 stage2_filename: db 'STAGE2  BIN'
 
@@ -527,7 +531,7 @@ dw 0xAA55
 
 buffer:                 ; This will be at 0x7E00
 
-; Load the stage2 into memory starting at 0x2000
-STAGE2_LOAD_SEGMENT equ 0x2000
-STAGE2_LOAD_OFFSET  equ 0
+; Load the stage2 into memory starting at 0x0500
+STAGE2_LOAD_SEGMENT equ 0x0
+STAGE2_LOAD_OFFSET  equ 0x500
 

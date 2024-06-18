@@ -1,6 +1,6 @@
 bits 16
 
-section _TEXT class=code
+section _TEXT
 
 ;
 ; void _cdecl bios_putc(char c, Uint8 page)
@@ -8,8 +8,8 @@ section _TEXT class=code
 ; Uses Int 10 0E to display c on page
 ;
 
-global _bios_putc
-_bios_putc:
+global bios_putc
+bios_putc:
     ; Make new stack frame
     push bp
     mov bp, sp
@@ -41,8 +41,8 @@ _bios_putc:
 ; Uses Int 13h 0 to reset disk driveNUmber
 ;
 
-global _bios_resetDisk
-_bios_resetDisk:
+global bios_resetDisk
+bios_resetDisk:
     ; Make new stack frame
     push bp
     mov bp, sp
@@ -94,8 +94,8 @@ _bios_resetDisk:
 ;   data will be at location pointed to by buffer
 ;
 
-global _bios_readDisk
-_bios_readDisk:
+global bios_readDisk
+bios_readDisk:
     ; Make new stack frame
     push bp
     mov bp, sp
@@ -181,8 +181,8 @@ _bios_readDisk:
 ; Returns true/false on success/failure
 ;
 
-global _bios_getDriveParams
-_bios_getDriveParams:
+global bios_getDriveParams
+bios_getDriveParams:
     ; Make new stack frame
     push bp
     mov bp, sp
@@ -263,8 +263,8 @@ _bios_getDriveParams:
 ;
 ;
 
-global _x86_div64_32
-_x86_div64_32:
+global x86_div64_32
+x86_div64_32:
     ; make new call frame
     push bp             ; save old call frame
     mov bp, sp          ; initialize new call frame
