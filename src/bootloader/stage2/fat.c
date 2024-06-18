@@ -302,6 +302,7 @@ Uint32 readFile(File* file, Uint32 count, Uint8* buff)
 
         file->position  += actual;
         file->remaining -= actual;
+        buff += actual;
         totalRead += actual;
         count -= actual;
     }

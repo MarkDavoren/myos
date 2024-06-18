@@ -11,14 +11,14 @@ include build_scripts/toolchain.mk
 #
 floppy_image: $(BUILD_DIR)/main_floppy.img
 
-FLOPPY_COMPONENTS := $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin #$(BUILD_DIR)/kernel.bin
+FLOPPY_COMPONENTS := $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel.bin
 
 $(BUILD_DIR)/main_floppy.img: $(FLOPPY_COMPONENTS)
 	@dd if=/dev/zero of=$@ bs=512 count=2880 >/dev/null
 	@mkfs.fat -F 12 -n "NBOS" $@ >/dev/null
 	@dd if=$(BUILD_DIR)/stage1.bin of=$@ conv=notrunc >/dev/null
 	@mcopy -i $@ $(BUILD_DIR)/stage2.bin "::stage2.bin"
-#	@mcopy -i $@ $(BUILD_DIR)/kernel.bin "::kernel.bin"
+	@mcopy -i $@ $(BUILD_DIR)/kernel.bin "::kernel.bin"
 	@mcopy -i $@ test.txt "::test.txt"
 	@mcopy -i $@ test2.txt "::test2.txt"
 	@mmd -i $@ "::mydir"

@@ -4,41 +4,47 @@
 #include "disk.h"
 #include "fat.h"
 #include "utility.h"
+#include "memdefs.h"
+#include "string.h"
 
-void end();
-
-
-void printFileContents(Handle fin);
-
-Uint8* dbuff = (Uint8*) 0x20000;
+typedef void (*KernelStart)();
+void jumpToKernel();
 
 void __attribute__((cdecl)) start(Uint16 bootDrive)
 {
     Bool ok;
     clearScreen();
-    printf("Hello\n");
+    printf("Hello from stage 2\n");
     
     ok = fatInitialize(bootDrive);
     printf("fatInitialize: ok = %d\n", ok);
 
-    Handle fin = fatOpen("/mydir/test.txt");
+    Handle fin = fatOpen("/kernel.bin");
+    printf("fatOpen: fin = %u\n", fin);
 
-    printFileContents(fin);
+    Uint8* kp = KERNEL_LOAD_ADDR;
+    Uint32 count;
+    while ((count = fatRead(fin, SCRATCH_MEM_SIZE, SCRATCH_MEM_ADDRESS)) > 0) {
+        printf("Copying %x bytes from %p to %p\n", count, SCRATCH_MEM_ADDRESS, kp);
+        memcpy(kp, SCRATCH_MEM_ADDRESS, count);
+        kp += count;
+    }
 
-    end();
+    fatClose(fin);
+
+    jumpToKernel();
 }
 
-void printFileContents(Handle fin)
+void jumpToKernel()
 {
-    if (fin == BAD_HANDLE) {
-        printf("Bad handle\n");
-        end();
+    Uint8* pp = KERNEL_LOAD_ADDR;
+    for (int ii = 0; ii < 16; ++ii) {
+        printf("%x ", pp[ii]);
     }
+    printf("\n");
 
-    char buff[100];
-    Uint32 count;
-    while ((count = fatRead(fin, 100, buff)) > 0) {
-        buff[count] = '\0';
-        printf("%s\n", buff);
-    }
+    KernelStart kernelStart = (KernelStart) KERNEL_LOAD_ADDR;
+    printf("Jumping to kernel at %p\n", kernelStart);
+    kernelStart();
+
 }

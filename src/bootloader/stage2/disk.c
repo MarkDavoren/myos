@@ -1,6 +1,6 @@
 #include "stdtypes.h"
 #include "disk.h"
-#include "x86.h"
+#include "bios.h"
 #include "stdio.h"
 
 /*

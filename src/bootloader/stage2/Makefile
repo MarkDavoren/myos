@@ -6,7 +6,7 @@ TARGET_LINKFLAGS += -T linker.ld -nostdlib
 OBJ_DIR :=$(BUILD_DIR)/stage2
 
 SOURCES_C := main.c stdio.c disk.c fat.c utility.c ctype.c string.c
-SOURCES_A := stage2.asm x86.asm
+SOURCES_A := stage2.asm x86.asm bios.asm
 OBJECTS_C := $(patsubst %.c, $(OBJ_DIR)/%.obj, $(SOURCES_C))
 OBJECTS_A := $(patsubst %.asm, $(OBJ_DIR)/%.obj, $(SOURCES_A))
 OBJECTS   := $(OBJECTS_C) $(OBJECTS_A)

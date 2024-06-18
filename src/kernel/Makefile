@@ -5,15 +5,15 @@ TARGET_LINKFLAGS += -T linker.ld -nostdlib
 
 OBJ_DIR :=$(BUILD_DIR)/kernel
 
-SOURCES_C := $(wildcard *.c)
-SOURCES_A := $(wildcard *.asm)
-OBJECTS_C := $(patsubst %.c, $(BUILD_DIR)/kernel/c/%.obj, $(SOURCES_C))
-OBJECTS_A := $(patsubst %.asm, $(BUILD_DIR)/kernel/asm/%.obj, $(SOURCES_A))
+SOURCES_C := main.c stdio.c string.c
+SOURCES_A := x86.asm
+OBJECTS_C := $(patsubst %.c, $(OBJ_DIR)/%.obj, $(SOURCES_C))
+OBJECTS_A := $(patsubst %.asm, $(OBJ_DIR)/%.obj, $(SOURCES_A))
 OBJECTS   := $(OBJECTS_C) $(OBJECTS_A)
 
 .PHONY: all build clean
 
-all: $(BUILD_DIR)/kernel.bin
+all: build $(BUILD_DIR)/kernel.bin
 
 $(BUILD_DIR)/kernel.bin: $(OBJECTS)
 	$(TARGET_LD) $(TARGET_LINKFLAGS) -Wl,-Map=$(BUILD_DIR)/kernel.map -o $@ $^ $(TARGET_LIBS)
@@ -28,5 +28,5 @@ build:
 	mkdir -p $(OBJ_DIR)
 
 clean:
-	rm -f $(BUILD_DIR)/kernel.bin
+	rm -f $(BUILD_DIR)/kernel.bin $(BUILD_DIR)/kernel.map
 	rm -rf $(OBJ_DIR)
