@@ -2,7 +2,8 @@
 
 #include "stdtypes.h"
 
-void _cdecl bios_putc(char c, Uint8 page);
+void __attribute__((cdecl)) x86_outb(Uint16 port, Uint8 value);
+Uint8 __attribute__((cdecl)) x86_inb(Uint16 port);
 
 Bool _cdecl bios_getDriveParams(
                 Uint8   driveNumber,
@@ -20,9 +21,3 @@ Bool _cdecl bios_readDisk(
                 Uint8* status);
                 
 Bool _cdecl bios_resetDisk(Uint8 driveNumber);
-
-void _cdecl x86_div64_32(
-                Uint64  dividend,
-                Uint32  divisor,
-                Uint64* quotient,
-                Uint32* remainder);

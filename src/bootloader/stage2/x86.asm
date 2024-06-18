@@ -2,6 +2,21 @@ bits 16
 
 section _TEXT
 
+global x86_outb
+x86_outb:
+    [bits 32]
+    mov dx, [esp + 4]
+    mov al, [esp + 8]
+    out dx, al
+    ret
+
+global x86_inb
+x86_inb:
+    [bits 32]
+    mov dx, [esp + 4]
+    xor eax, eax
+    in al, dx
+    ret
 ;
 ; void _cdecl bios_putc(char c, Uint8 page)
 ;
@@ -246,115 +261,4 @@ bios_getDriveParams:
     ; Restore old stack frame
     mov sp, bp
     pop bp
-    ret
-
-;
-; void _cdecl x86_div64_32(
-;                   Uint64  dividend,
-;                   Uint32  divisor,
-;                   Uint64* quotient,
-;                   Uint32* remainder);
-;
-; When compiling C files in 16 bit mode, wcc will use functions from a system library to handle
-; division and mod of 32 bit or higher operands. Since we don't have access to those libraries,
-; at link time we get a symbol, e.g., U8DR or U8DQ, not found error.
-;
-; So we implemented our own divide and mod code
-;
-;
-
-global x86_div64_32
-x86_div64_32:
-    ; make new call frame
-    push bp             ; save old call frame
-    mov bp, sp          ; initialize new call frame
-
-    push bx
-
-    ; [bp + 18]  - &remainder       (2 bytes)
-    ; [bp + 16]  - &quotient        (2 bytes)
-    ; [bp + 12]  - divisor          (4 bytes)
-    ; [bp + 4]   - dividend         (8 bytes)
-    ; [bp + 2]   - return address   (2 bytes - small memory model)
-    ; [bp + 0]   - old call frame   (2 bytes)
-
-    ; divide upper 32 bits
-    mov eax, [bp + 8]   ; eax <- upper 32 bits of dividend
-    mov ecx, [bp + 12]  ; ecx <- divisor
-    xor edx, edx
-    div ecx             ; eax - quot, edx - remainder
-
-    ; store upper 32 bits of quotient
-    mov bx, [bp + 16]
-    mov [bx + 4], eax
-
-    ; divide lower 32 bits
-    mov eax, [bp + 4]   ; eax <- lower 32 bits of dividend
-                        ; edx <- old remainder
-    div ecx
-
-    ; store results
-    mov [bx], eax
-    mov bx, [bp + 18]
-    mov [bx], edx
-
-    pop bx
-
-    ; restore old call frame
-    mov sp, bp
-    pop bp
-    ret
-
-;
-; U4D
-;   Used by Watcom compiler to do 4 byte division and remainder
-;
-; Operation:      Unsigned 4 byte divide
-; Inputs:         DX;AX   Dividend
-;                 CX;BX   Divisor
-; Outputs:        DX;AX   Quotient
-;                 CX;BX   Remainder
-; Volatile:       none
-;
-global __U4D
-__U4D:
-    shl edx, 16         ; dx to upper half of edx
-    mov dx, ax          ; edx - dividend
-    mov eax, edx        ; eax - dividend
-    xor edx, edx
-
-    shl ecx, 16         ; cx to upper half of ecx
-    mov cx, bx          ; ecx - divisor
-
-    div ecx             ; eax - quot, edx - remainder
-    mov ebx, edx
-    mov ecx, edx
-    shr ecx, 16
-
-    mov edx, eax
-    shr edx, 16
-
-    ret
-
-;
-; U4M
-; Operation:      integer four byte multiply
-; Inputs:         DX;AX   integer M1
-;                 CX;BX   integer M2
-; Outputs:        DX;AX   product
-; Volatile:       CX, BX destroyed
-;
-global __U4M
-__U4M:
-    shl edx, 16         ; dx to upper half of edx
-    mov dx, ax          ; m1 in edx
-    mov eax, edx        ; m1 in eax
-
-    shl ecx, 16         ; cx to upper half of ecx
-    mov cx, bx          ; m2 in ecx
-
-    mul ecx             ; result in edx:eax (we only need eax)
-    mov edx, eax        ; move upper half to dx
-    shr edx, 16
-
     ret

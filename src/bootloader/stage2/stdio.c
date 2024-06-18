@@ -1,10 +1,11 @@
+#include <stdarg.h>
 #include "stdtypes.h"
 #include "stdio.h"
 #include "x86.h"
 
-const unsigned SCREEN_WIDTH = 80;
-const unsigned SCREEN_HEIGHT = 24;
-const unsigned DEFAULT_COLOR = 0x7;
+const unsigned SCREEN_WIDTH = 80;       // As defined by VGA
+const unsigned SCREEN_HEIGHT = 25;      // As defined by VGA
+const unsigned DEFAULT_COLOR = 0x0F;    // White (F) on black (0)
 
 Uint8* screen = (Uint8*) 0xB8000;
 int currentX = 0, currentY = 0;
@@ -14,22 +15,50 @@ void putChar(int x, int y, char c)
     screen[2 * (y * SCREEN_WIDTH + x)] = c;
 }
 
+char getChar(int x, int y)
+{
+    return screen[2 * (y * SCREEN_WIDTH + x)];
+}
+
 void putColor(int x, int y, Uint8 color)
 {
         screen[2 * (y * SCREEN_WIDTH + x) + 1] = color;
 }
 
+Uint8 getColor(int x, int y)
+{
+    return screen[2 * (y * SCREEN_WIDTH + x) + 1];
+}
+
 void setCursor(int x, int y)
 {
-    // TODO
+    int pos = y * SCREEN_WIDTH + x;
+
+    /*
+     * The VGA controller has many registers which are accessed via ports
+     * This requires the x86 out instruction, not writing to some memory location
+     * Hence the drop into assembly language
+     * 
+     * 0x3D4 is a port where you output an index value to select the target register
+     * and then you output the value to 0x3D5
+     * 
+     * Target register 0x0F holds the top 8 bits of the cursor location
+     * Target register 0x0E holds the bottom 8 bits
+     * where the location is Y * Screen Width + X
+     */
+    x86_outb(0x3D4, 0x0F);                  // Cursor location high register - top 8 bits
+    x86_outb(0x3D5, (Uint8)(pos & 0xFF));
+    x86_outb(0x3D4, 0x0E);                  // Cursor location low register - bottom 8 bits
+    x86_outb(0x3D5, (Uint8)((pos >> 8) & 0xFF));    
 }
 
 void clearScreen()
 {
-    for (int yy = 0; yy < SCREEN_HEIGHT; ++yy)
+    for (int yy = 0; yy < SCREEN_HEIGHT; ++yy) {
         for (int xx = 0; xx < SCREEN_WIDTH; ++xx) {
             putChar(xx, yy, '\0');
             putColor(xx, yy, DEFAULT_COLOR);
+        }
     }
     currentX = 0;
     currentY = 0;
@@ -38,13 +67,28 @@ void clearScreen()
 
 void scroll(int numLines)
 {
-    // TODO
+    for (int yy = numLines; yy < SCREEN_HEIGHT; ++yy) {
+        for (int xx = 0; xx < SCREEN_WIDTH; ++xx) {
+            putChar(xx, yy - numLines, getChar(xx, yy));
+            putColor(xx, yy - numLines, getColor(xx, yy));
+        }
+    }
+
+    for (int yy = SCREEN_HEIGHT - numLines; yy < SCREEN_HEIGHT; ++yy) {
+        for (int xx = 0; xx < SCREEN_WIDTH; ++xx) {
+            putChar(xx, yy, '\0');
+            putColor(xx, yy, DEFAULT_COLOR);
+        }
+    }
+
+    currentY -= numLines;
 }
 
 void putc(char c)
 {
     switch (c) {
     case '\n':
+        currentX = 0;
         currentY++;
         break;
     
@@ -83,69 +127,20 @@ void puts(const char* str)
     }
 }
 
-typedef enum length_t {NORMAL, SHORT_SHORT, SHORT, LONG, LONG_LONG} length_t;
+typedef enum Length {NORMAL, SHORT_SHORT, SHORT, LONG, LONG_LONG} Length;
 const char hex[16] = "0123456789ABCDEF";
 
-int* putnum(int* argp, length_t length, Bool sign, int radix)
+void printUnsigned(unsigned long long number, int radix)
 {
-    unsigned long long number;
-    Bool negative = false;
     int pos = 0;
     char buf[32];
 
-    /*
-     * Assuming we are in 16 bit mode and an int and an int* is 2 bytes
-     */
-    /*
-     * Assuming we are using two's complement and that casting back and forth
-     * between signed and unsigned will not change the value
-     */
-    switch (length) {
-        case NORMAL:        // In 16 bit mode, an int is a short
-        case SHORT_SHORT:   // In 16 bit mode, you can't push just a byte onto the stack, so treat as a short
-        case SHORT: {
-            int n = *argp;
-            if (sign && n < 0) {
-                n = -n;
-                negative = true;
-            }
-            number = (unsigned) n;
-            argp++;
-            break;
-        }
-
-        case LONG: {
-            long int n = *(long int*)argp;
-            if (sign && n < 0) {
-                n = -n;
-                negative = true;
-            }
-            number = (unsigned long long) n;
-            argp += 2;
-            break;
-        }
-
-        case LONG_LONG: {
-            long long int n = *(long long int*)argp;
-            if (sign && n < 0) {
-                n = -n;
-                negative = true;
-            }
-            number = (unsigned long long) n;
-            argp += 4;
-            break;
-        }
-    }
-
     do {
         Uint32 rem;
-        x86_div64_32(number, radix, &number, &rem);
+        rem = number % radix;
+        number = number / radix;
         buf[pos++] =  hex[rem];
     } while (number > 0);
-
-    if (negative) {
-        buf[pos++] = '-';
-    }
 
     // if (radix == 16) {
     //     buf[pos++] = 'x';
@@ -157,14 +152,24 @@ int* putnum(int* argp, length_t length, Bool sign, int radix)
     while (pos-- > 0) {
         putc(buf[pos]);
     }
-
-    return argp;
 }
 
-void _cdecl printf(const char* fmt, ...)
+void printSigned(long long number, int radix)
 {
-    int* argp = ((int*)&fmt) + 1;
-    length_t length = NORMAL;
+    if (number < 0) {
+        putc('-');
+        number = -number;
+    }
+
+    printUnsigned(number, radix);
+}
+
+void printf(const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+
+    Length length = NORMAL;
 
     while (*fmt) {
         switch (*fmt) {
@@ -175,27 +180,64 @@ void _cdecl printf(const char* fmt, ...)
                     putc('%');
                     break;
                 case 'c':
-                    putc((char) *argp);
-                    argp++;
+                    putc(va_arg(args, int)); // Must be an int not a char
                     break;
                 case 's':
-                    puts(*(const char**) argp);
-                    argp++;
+                    puts(va_arg(args, const char*));
                     break;
                 case 'd':
                 case 'i':
-                    argp = putnum(argp, length, true, 10);
-                    break;
                 case 'u':
-                    argp = putnum(argp, length, false, 10);
-                    break;
+                case 'X':
                 case 'x':
                 case 'p':
-                    argp = putnum(argp, length, false, 16);
-                    break;
                 case 'o':
-                    argp = putnum(argp, length, false, 8);
+                    Bool sign;
+                    int radix;
+                    switch (*fmt) {
+                    case 'd':   sign =  true; radix = 10; break;
+                    case 'i':   sign =  true; radix = 10; break;
+                    case 'u':   sign = false; radix = 10; break;
+                    case 'X':   sign = false; radix = 16; break;
+                    case 'x':   sign = false; radix = 16; break;
+                    case 'p':   sign = false; radix = 16; break; // In 32 bit mode sizeof(int) == sizeof(int*)
+                    case 'o':   sign = false; radix =  8; break;
+                    }
+                    if (sign) {
+                        switch (length) {
+                        case SHORT_SHORT:
+                        case SHORT:
+                        case NORMAL:
+                            printSigned(va_arg(args, int), radix);
+                            break;
+
+                        case LONG:
+                            printSigned(va_arg(args, long), radix);
+                            break;
+                        
+                        case LONG_LONG:
+                            printSigned(va_arg(args, long long), radix);
+                            break;
+                        }
+                    } else {
+                        switch (length) {
+                        case SHORT_SHORT:
+                        case SHORT:
+                        case NORMAL:
+                            printUnsigned(va_arg(args, unsigned int), radix);
+                            break;
+
+                        case LONG:
+                            printUnsigned(va_arg(args, unsigned long), radix);
+                            break;
+                        
+                        case LONG_LONG:
+                            printUnsigned(va_arg(args, unsigned long long), radix);
+                            break;
+                        }
+                    }
                     break;
+
                 case 'h':
                     if (*(fmt+1) == 'h') {
                         fmt++;
@@ -223,4 +265,6 @@ void _cdecl printf(const char* fmt, ...)
         }
         fmt++;
     }
+
+    va_end(args);
 }
