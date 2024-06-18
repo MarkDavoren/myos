@@ -2,6 +2,88 @@ bits 16
 
 section _TEXT
 
+; Create macros to enter 16 bit real mode and 32 bit protected mode.
+; Macros are a lot easier than functions since, e.g., with a function to go from 32PM to 16RM
+; the caller would push a 32 bit return address, but the callee return would pop a 16 bit address
+
+;
+; Enter 16 bit real mode
+; 1. JMP to 16 bit protected mode
+; 2. Clear protected mode flag in CR0
+; 3. JMP to a 16 bit real mode code segment
+; 4. Set segment registers to point to 16 bit real mode segment
+; 5. Enable interrupts
+;
+
+%macro x86_enterRealMode 0
+    [bits 32]
+    jmp word 18h:.pmode16   ; 18h refers to the 4th GDT entry which is a 16 bit code segment
+.pmode16:
+    [bits 16]
+
+    mov eax, cr0
+    and al, ~1              ; clear Protected mode flag
+    mov cr0, eax
+
+    jmp word 00h:.rmode     ; 00h refers to first GDT entry which is a 16 bit real mode segment
+.rmode:
+
+    mov ax, 00h             ; 00h refers to first GDT entry which is a 16 bit real mode segment
+    mov ds, ax
+    mov ss, ax
+
+    sti
+%endmacro
+
+;
+; Enter 32 bit protected mode
+; 1. Disable interrupts
+; 2. Set protected mode flag in CR0
+; 3. JMP to a 32 bit protected mode code segment
+; 4. Set segment registers to point to 32 bit protected data segment
+;
+
+%macro x86_enterProtectedMode 0
+    [bits 16]
+    cli
+
+    mov eax, cr0
+    or al, 1
+    mov cr0, eax
+
+    jmp dword 08h:.pmode    ; 08h refers to second GDT entry which is a 32 bit protected mode code segment
+.pmode:
+    [bits 32]
+
+    mov ax, 0x10            ; 10h refers to third GDT entry which is a 32 bit protected mode data segment
+    mov ds, ax
+    mov ss, ax
+%endmacro
+
+;
+; Convert a linear address to a segment:offset address
+; 1. in  - 32 bit linear address
+; 2. out - 16 bit segment
+; 3. tmp - 32 bit register containing %4
+; 4. out - 16 bit offset
+;
+; segment = linear >> 4
+; offset  = linear & 0xF
+;
+
+%macro linearToSegmented 4
+    mov %3, %1      ; linear address to eax
+    shr %3, 4
+    mov %2, %4
+    mov %3, %1      ; linear address to eax
+    and %3, 0xf
+%endmacro
+
+;
+; x86_outb(Uint8 port, Uint8 value)
+;
+; Output a byte value to a port
+;
 global x86_outb
 x86_outb:
     [bits 32]
@@ -10,44 +92,18 @@ x86_outb:
     out dx, al
     ret
 
+;
+; Uint8 x86_inb(Uint8 port)
+;
+; Input a byte value from a port
+;
+
 global x86_inb
 x86_inb:
     [bits 32]
     mov dx, [esp + 4]
     xor eax, eax
     in al, dx
-    ret
-;
-; void _cdecl bios_putc(char c, Uint8 page)
-;
-; Uses Int 10 0E to display c on page
-;
-
-global bios_putc
-bios_putc:
-    ; Make new stack frame
-    push bp
-    mov bp, sp
-
-    ; Save registers
-    push bx
-
-    ; [bp + 0] - old call frame
-    ; [bp + 2] - return address (small memory model => 2 bytes)
-    ; [bp + 4] - first argument - character to be displayed
-    ; [bp + 6] - second argument - page
-
-    mov ah, 0Eh         ; AH = BIOS sub-function
-    mov al, [bp + 4]    ; AL = character to be displayed
-    mov bh, [bp + 6]    ; BH = page
-    int 10h
-
-    ; Restore registers
-    pop bx
-
-    ; Restore old stack frame
-    mov sp, bp
-    pop bp
     ret
 
 ;
@@ -58,26 +114,36 @@ bios_putc:
 
 global bios_resetDisk
 bios_resetDisk:
+    [bits 32]
+
     ; Make new stack frame
-    push bp
-    mov bp, sp
+    push ebp
+    mov ebp, esp
+
+    x86_enterRealMode
+    [bits 16]
 
     ; [bp + 0] - old call frame
-    ; [bp + 2] - return address (small memory model => 2 bytes)
-    ; [bp + 4] - drive number
+    ; [bp + 4] - return address
+    ; [bp + 8] - drive number
  
     mov ah, 0           ; AH = BIOS function: Reset disk
-    mov dl, [bp + 4]    ; DL = drive number
+    mov dl, [bp + 8]    ; DL = drive number
     stc
     int 13h             ; Int 13h AH=0: Reset disk
 
     ; return success status
-    mov ax, 1
-    sbb ax, 0       ; Subtract with borrow. If CF is clear then AX = 1, otherwise AX = 0
+    mov eax, 1
+    sbb eax, 0       ; Subtract with borrow. If CF is clear then EAX = 1, otherwise EAX = 0
+
+    push eax
+    x86_enterProtectedMode
+    [bits 32]
+    pop eax
 
     ; Restore old stack frame
-    mov sp, bp
-    pop bp
+    mov esp, ebp
+    pop ebp
     ret
 
 ;
@@ -87,7 +153,7 @@ bios_resetDisk:
 ;                 Uint16 head,
 ;                 Uint16 sector,
 ;                 Uint8  count,
-;                 Uint8 far* buffer
+;                 Uint8* buffer
 ;                 Uint8* status);
 ;
 ; Reads count sectors starting at cylinder/head/sector of the specified drive into buffer
@@ -111,24 +177,28 @@ bios_resetDisk:
 
 global bios_readDisk
 bios_readDisk:
+    [bits 32]
+
     ; Make new stack frame
-    push bp
-    mov bp, sp
+    push ebp
+    mov ebp, esp
+
+    x86_enterRealMode
+    [bits 16]
 
     ; Save registers
-    push bx
-    push si
+    push ebx
     push es
 
-    ; [bp + 18] - *status           (2 bytes)
-    ; [bp + 14] - *buffer           (4 bytes)
-    ; [bp + 12] - count             (2 bytes)
-    ; [bp + 10] - sector            (2 bytes)
-    ; [bp + 8]  - head              (2 bytes)
-    ; [bp + 6]  - cylinder          (2 bytes)
-    ; [bp + 4]  - driveNumber       (2 bytes)
-    ; [bp + 2]  - return address    (2 bytes)
-    ; [bp + 0]  - old call frame    (2 bytes)
+    ; [bp + 32] - *status           (4 bytes)
+    ; [bp + 28] - *buffer           (4 bytes)
+    ; [bp + 24] - count             (4 bytes)
+    ; [bp + 20] - sector            (4 bytes)
+    ; [bp + 16] - head              (4 bytes)
+    ; [bp + 12] - cylinder          (4 bytes)
+    ; [bp +  8] - driveNumber       (4 bytes)
+    ; [bp +  4] - return address    (4 bytes)
+    ; [bp +  0] - old call frame    (4 bytes)
 
     ;   AH = 02h
     ;   AL = Number of sectors to read
@@ -141,23 +211,21 @@ bios_readDisk:
     ;   DL = drive
     ;   ES:BX = Destination address
 
-    mov dl, [bp + 4]    ; drive
+    mov dl, [bp + 8]    ; drive
 
-    mov ch, [bp + 6]    ; cylinder
-    mov cl, [bp + 7]
+    mov ch, [bp + 12]   ; cylinder
+    mov cl, [bp + 13]
     shr cl, 6
 
-    mov dh, [bp + 8]    ; head
+    mov dh, [bp + 16]   ; head
 
-    mov al, [bp + 10]   ; sector
+    mov al, [bp + 20]   ; sector
     and al, 0x3F
     or cl, al
 
-    mov al, [bp + 12]   ; count
+    mov al, [bp + 24]   ; count
 
-    mov bx, [bp + 16]   ; buffer
-    mov es, bx
-    mov bx, [bp + 14]
+    linearToSegmented [bp + 28], es, ebx, bx
 
     mov ah, 0x2         ; Disk read function
 
@@ -168,21 +236,25 @@ bios_readDisk:
     ;   AH = Return code
     ;   AL = Number of actual sectors read. Always seems to be 0 or requested count
 
-    mov si, [bp + 18]   ; Update *status
-    mov [si], ah
+    linearToSegmented [bp + 32], es, ebx, bx
+    mov [es:bx], ah
 
     ; return success status
-    mov ax, 1
-    sbb ax, 0           ; Subtract with borrow. If CF is clear then AX = 1 (true), otherwise AX = 0 (false)
+    mov eax, 1
+    sbb eax, 0           ; Subtract with borrow. If CF is clear then EAX = 1 (true), otherwise EAX = 0 (false)
  
     ; Restore registers
-    pop bx
-    pop si
     pop es
+    pop ebx
+
+    push eax
+    x86_enterProtectedMode
+    [bits 32]
+    pop eax
 
     ; Restore old stack frame
-    mov sp, bp
-    pop bp
+    mov esp, ebp
+    pop ebp
     ret
 
 ;
@@ -198,25 +270,32 @@ bios_readDisk:
 
 global bios_getDriveParams
 bios_getDriveParams:
+    [bits 32]
+
     ; Make new stack frame
-    push bp
-    mov bp, sp
+    push ebp
+    mov ebp, esp
+
+    x86_enterRealMode
+    [bits 16]
 
     ; Save registers
     push bx
     push di
-    push si
+    push esi
     push es
 
-    ; [bp + 10] - &numSectors       (2 bytes)
-    ; [bp + 8]  - &numHeads         (2 bytes)
-    ; [bp + 6]  - &numCylinders     (2 bytes)
-    ; [bp + 4]  - driveNumber       (2 bytes)
-    ; [bp + 2]  - return address    (2 bytes)
-    ; [bp + 0]  - old call frame    (2 bytes)
+    ; [bp + 20]  - &numSectors       (4 bytes)
+    ; [bp + 16]  - &numHeads         (4 bytes)
+    ; [bp + 12]  - &numCylinders     (4 bytes)
+    ; [bp +  8]  - driveNumber       (4 bytes)
+    ; [bp +  4]  - return address    (4 bytes)
+    ; [bp +  0]  - old call frame    (4 bytes)
 
     mov ah, 08h         ; AH = BIOS function: Read drive parameters
-    mov dl, [bp + 4]    ; DL = drive number
+    mov dl, [bp + 8]    ; DL = drive number
+    mov di, 0           ; Set ES:DI = 0
+    mov es, di
     stc 
     int 13h
 
@@ -230,35 +309,41 @@ bios_getDriveParams:
     ; Also modifies AH, DL, BL, and ES:DI
 
     ; return success status
-    mov ax, 1
-    sbb ax, 0       ; Subtract with borrow. If CF is clear then AX = 1, otherwise AX = 0
+    mov eax, 1
+    sbb eax, 0       ; Subtract with borrow. If CF is clear then EAX = 1, otherwise EAX = 0
 
     ; numCylinders
     mov bl, ch
     mov bh, cl
     shr bh, 6
     inc bx
-    mov si, [bp + 6]
-    mov [si],bx
+    linearToSegmented [bp + 12], es, esi, si
+    mov [es:si],bx
 
     ; numSectors
     xor ch,ch
     and cl,0x3F
-    mov si, [bp + 10]
-    mov [si], cx
+    linearToSegmented [bp + 20], es, esi, si
+    mov [es:si], cx
 
     ; numHeads
-    inc dh
-    mov si, [bp + 8]
-    mov [si], dh
+    mov cl, dh
+    inc cx
+    linearToSegmented [bp + 16], es, esi, si
+    mov [es:si], cx
 
     ; Restore registers
-    pop bx
-    pop di
-    pop si
     pop es
+    pop esi
+    pop di
+    pop bx
+
+    push eax
+    x86_enterProtectedMode
+    [bits 32]
+    pop eax
 
     ; Restore old stack frame
-    mov sp, bp
-    pop bp
+    mov esp, ebp
+    pop ebp
     ret

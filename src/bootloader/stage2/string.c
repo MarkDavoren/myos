@@ -1,10 +1,10 @@
 #include "string.h"
 #include "stdtypes.h"
 
-void far* memcpy(void far* dst, const void far* src, Uint16 num)
+void* memcpy(void* dst, const void* src, Uint16 num)
 {
-    Uint8 far* u8Dst       = (Uint8 far *) dst;
-    const Uint8 far* u8Src = (const Uint8 far *) src;
+    Uint8* u8Dst       = (Uint8 *) dst;
+    const Uint8* u8Src = (const Uint8 *) src;
 
     for (Uint16 ii = 0; ii < num; ++ii) {
         u8Dst[ii] = u8Src[ii];
@@ -13,9 +13,9 @@ void far* memcpy(void far* dst, const void far* src, Uint16 num)
     return dst;
 }
 
-void far * memset(void far * ptr, int value, Uint16 num)
+void * memset(void * ptr, int value, Uint16 num)
 {
-    Uint8 far* u8Ptr = (Uint8 far *)ptr;
+    Uint8* u8Ptr = (Uint8 *)ptr;
 
     for (Uint16 ii = 0; ii < num; ++ii) {
         u8Ptr[ii] = (Uint8) value;      // In real C, this is what happens. Passed as int, but used as unsigned char
@@ -24,10 +24,10 @@ void far * memset(void far * ptr, int value, Uint16 num)
     return ptr;
 }
 
-int memcmp(const void far* ptr1, const void far* ptr2, Uint16 num)
+int memcmp(const void* ptr1, const void* ptr2, Uint16 num)
 {
-    const Uint8 far* u8Ptr1 = (const Uint8 far *)ptr1;
-    const Uint8 far* u8Ptr2 = (const Uint8 far *)ptr2;
+    const Uint8* u8Ptr1 = (const Uint8 *)ptr1;
+    const Uint8* u8Ptr2 = (const Uint8 *)ptr2;
 
     for (Uint16 ii = 0; ii < num; ++ii)
         if (u8Ptr1[ii] != u8Ptr2[ii])

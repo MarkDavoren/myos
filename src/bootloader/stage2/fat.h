@@ -8,7 +8,7 @@ typedef Int8 Handle;
 
 Bool fatInitialize(Uint8 driveNumber);
 Handle fatOpen(const char* path);
-Uint32 fatRead(Handle handle, Uint32 byteCount, void far* buffer);
+Uint32 fatRead(Handle handle, Uint32 byteCount, void* buffer);
 void fatClose(Handle handle);
 
 enum FatAttributes

@@ -1,6 +1,5 @@
 #pragma once
 
-
 /*
  * The typical real mode 16 bit address space with an active BIOS is as follows:
  *
@@ -31,5 +30,8 @@
  *   0x000C8000 - 0x000FFFFF - BIOS
  */
 
-#define FAT_MEM_ADDRESS 0x00500000     // segment:offset (SSSSOOOO) 50:0000 = 500 linear
-#define FAT_MEM_SIZE    0x10000
+#define FAT_MEM_ADDRESS     0x00020000
+#define FAT_MEM_SIZE        0x00010000
+
+#define KERNEL_MEM_ADDRESS  0x00030000
+#define KERNEL_MEM_SIZE     0x00010000
