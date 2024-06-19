@@ -31,6 +31,22 @@
             "compilerArgs": [
                 "-4 -d3 -s -wx -ms -zl -zq -za99"
             ]
+        },
+        {
+            "name": "i686-elf-gcc",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/src/kernel",
+                "${workspaceFolder}/toolchain/i686-elf/lib/gcc/i686-elf/13.2.0/include"
+            ],
+            "defines": [],
+            "compilerPath": "${workspaceFolder}/toolchain/i686-elf/bin/i686-elf-gcc",
+            "cStandard": "c99",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "gcc-x86",
+            "compilerArgs": [
+                "-std=c99", "-ffreestanding", "-nostdlib"
+            ]
         }
     ],
     "version": 4

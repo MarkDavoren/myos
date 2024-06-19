@@ -1,7 +1,7 @@
 #include <stdarg.h>
 #include "stdtypes.h"
 #include "stdio.h"
-#include "x86.h"
+#include "arch/i686/io.h"
 
 const unsigned SCREEN_WIDTH = 80;       // As defined by VGA
 const unsigned SCREEN_HEIGHT = 25;      // As defined by VGA
@@ -46,10 +46,10 @@ void setCursor(int x, int y)
      * Target register 0x0E holds the bottom 8 bits
      * where the location is Y * Screen Width + X
      */
-    x86_outb(0x3D4, 0x0F);                  // Cursor location high register - top 8 bits
-    x86_outb(0x3D5, (Uint8)(pos & 0xFF));
-    x86_outb(0x3D4, 0x0E);                  // Cursor location low register - bottom 8 bits
-    x86_outb(0x3D5, (Uint8)((pos >> 8) & 0xFF));    
+    i686_outb(0x3D4, 0x0F);                  // Cursor location high register - top 8 bits
+    i686_outb(0x3D5, (Uint8)(pos & 0xFF));
+    i686_outb(0x3D4, 0x0E);                  // Cursor location low register - bottom 8 bits
+    i686_outb(0x3D5, (Uint8)((pos >> 8) & 0xFF));    
 }
 
 void clearScreen()

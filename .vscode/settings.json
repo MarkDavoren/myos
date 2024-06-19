@@ -1,3 +1,7 @@
 {
-    "C_Cpp.default.compilerPath": "i686-elf-gcc"
+    "C_Cpp.default.compilerPath": "i686-elf-gcc",
+    "files.associations": {
+        "stdtypes.h": "c",
+        "binary.h": "c"
+    }
 }

@@ -1,12 +1,12 @@
 TARGET_ASMFLAGS += -f elf
-TARGET_CFLAGS += -ffreestanding -nostdlib
+TARGET_CFLAGS += -ffreestanding -nostdlib -I.
 TARGET_LIBS += -lgcc
 TARGET_LINKFLAGS += -T linker.ld -nostdlib
 
 OBJ_DIR :=$(BUILD_DIR)/kernel
 
-SOURCES_C := main.c stdio.c string.c
-SOURCES_A := x86.asm
+SOURCES_C := $(shell find $(SOURCEDIR) -name '*.c') 
+SOURCES_A := $(shell find $(SOURCEDIR) -name '*.asm')
 OBJECTS_C := $(patsubst %.c, $(OBJ_DIR)/%.obj, $(SOURCES_C))
 OBJECTS_A := $(patsubst %.asm, $(OBJ_DIR)/%.obj, $(SOURCES_A))
 OBJECTS   := $(OBJECTS_C) $(OBJECTS_A)
@@ -26,6 +26,8 @@ $(OBJ_DIR)/%.obj: %.asm
 
 build:
 	mkdir -p $(OBJ_DIR)
+	mkdir -p $(OBJ_DIR)/arch/i686
+	mkdir -p $(OBJ_DIR)/hal
 
 clean:
 	rm -f $(BUILD_DIR)/kernel.bin $(BUILD_DIR)/kernel.map
