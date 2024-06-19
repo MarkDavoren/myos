@@ -54,4 +54,4 @@ clean:
 	@$(MAKE) -C src/bootloader/stage2 BUILD_DIR=$(abspath $(BUILD_DIR)) clean
 	@$(MAKE) -C src/kernel BUILD_DIR=$(abspath $(BUILD_DIR)) clean
 	rm -f $(BUILD_DIR)/main_floppy.img
-	rmdir $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)
