@@ -42,12 +42,21 @@ static const char* exceptionMessages[] = {
     ""
 };
 
+typedef struct ISRRegistersT
+{
+    Uint32 ds;
+    Uint32 edi, esi, ebp, useless, ebx, edx, ecx, eax;    // pusha
+    Uint32 vectorNumber, error;
+    Uint32 eip, cs, eflags;             // pushed automatically by CPU
+    Uint32 esp, ss;                     // pushed automatically by CPU if there was a change in CPL
+} ISRRegisters;
+
 void __attribute((cdecl)) i686_ISR_0();
 extern void* i686_isrTable[];
 
-void test08(ISRRegisters* regs)
+void test06(ISRRegisters* regs)
 {
-    printf("Test 08 handler called\n");
+    printf("Test 06 handler called\n");
 }
 
 void isrInitialize()
@@ -57,32 +66,35 @@ void isrInitialize()
     }
     // idtDisableGate(100); // Test that int 64h will cause a int Bh segment not present exception
     
-    isrRegisterHandler(8, test08);  // Test dispatch to individual C handlers
+    isrRegisterHandler(6, test06);  // Test dispatch to individual C handlers
 }
 
-void isrRegisterHandler(int interrupt, ISRHandler handler)
+void isrRegisterHandler(int vectorNumber, ISRHandler handler)
 {
-    isrHandlers[interrupt] = handler;
+    isrHandlers[vectorNumber] = handler;
 }
 
 void __attribute__((cdecl)) isrHandler(ISRRegisters* regs)
 {
-    int interrupt = regs->interrupt;
+    int vectorNumber = regs->vectorNumber;
 
-    if (isrHandlers[interrupt] != NULL) {
-        isrHandlers[interrupt](regs);
+    if (isrHandlers[vectorNumber] != NULL) {
+        isrHandlers[vectorNumber](regs);
 
     } else {
-        printf("Unhandled exception %xh '%s'\n", interrupt, exceptionMessages[interrupt]);
+        printf("Unhandled exception %xh '%s'\n", vectorNumber, exceptionMessages[vectorNumber]);
 
         printf("  eax=%x  ebx=%x  ecx=%x  edx=%x  esi=%x  edi=%x\n",
                 regs->eax, regs->ebx, regs->ecx, regs->edx, regs->esi, regs->edi);
 
-        printf("  esp=%x  ebp=%x  eip=%x  eflags=%x  cs=%x  ds=%x  ss=%x\n",
-                regs->esp, regs->ebp, regs->eip, regs->eflags, regs->cs, regs->ds, regs->ss);
+        printf("  ebp=%x  eip=%x  eflags=%x  cs=%x  ds=%x\n",
+                regs->ebp, regs->eip, regs->eflags, regs->cs, regs->ds);
 
-        printf("  interrupt=%x  errorcode=%x\n",
-                regs->interrupt, regs->error);
+        printf("  vectorNumber=%x  errorcode=%x\n",
+                regs->vectorNumber, regs->error);
+        
+        printf("  ss=%x  esp=%x   -- ignore if no change in CPL\n",
+                regs->ss, regs->esp);
 
         printf("KERNEL PANIC!\n");
 

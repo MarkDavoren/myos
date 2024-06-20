@@ -18,6 +18,6 @@ void __attribute__((section(".entry"))) start(Uint16 bootDrive)
     printf("Hello from the kernel!!\n");
 
     //crashMeInt64h();
-    //crashMeDiv0();
-    crashMeInt8();
+    crashMeDiv0();
+    //crashMeInt6();
 }

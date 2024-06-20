@@ -19,6 +19,6 @@ typedef enum
 } IDT_FLAGS;
 
 void idtInitialize();
-void idtDisableGate(int interrupt);
-void idtEnableGate(int interrupt);
-void idtSetGate(int interrupt, void* base, Uint16 segmentDescriptor, Uint8 flags);
+void idtDisableGate(int vectorNumber);
+void idtEnableGate(int vectorNumber);
+void idtSetGate(int vectorNumber, void* base, Uint16 segmentDescriptor, Uint8 flags);

@@ -35,7 +35,7 @@
 
 ;
 ; Create an ISR for each possible interrupt and exception
-; They all push the interrupt number to the stack and jump to isr_common
+; They all push the vector number to the stack and jump to isr_common
 ; For some exceptions, the CPU will push an error code first, for others we push 0
 ; so isr_common can safely assume there are two parameters on the stack
 ;
@@ -58,7 +58,7 @@ MAKE_ISRS 8, 10, 11, 12, 13, 14, 17, 21
 ;   CS
 ;   EIP
 ;   Error code (or zero)
-;   Interrupt number
+;   Vector number
 ;   EAX
 ;   ECX
 ;   EDX
@@ -98,5 +98,7 @@ isr_common:
     mov gs, ax
 
     popa                ; pop what we pushed with pusha
-    add esp, 8          ; remove error code and interrupt number
+    add esp, 8          ; remove error code and vector number
+global isr_foo
+isr_foo:
     iret                ; will pop: cs, eip, eflags, ss, esp
