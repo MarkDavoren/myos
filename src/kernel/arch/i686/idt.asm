@@ -1,6 +1,11 @@
 [bits 32]
 
+;
+; Load the IDT (Interrupt Descriptor Table)
+;
 ; void __attribute__((cdecl)) i686_IDT_Load(IDTDescriptor* idtDescriptor);
+;
+
 global i686_IDT_Load
 i686_IDT_Load:
 

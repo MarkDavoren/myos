@@ -1,7 +1,7 @@
 [bits 32]
 
 ;
-; Load the GTD
+; Load the GDT (Global Descriptor Table) and then set all the segment registers
 ;
 ; void __attribute__((cdecl)) i686_GDT_Load(GDTDescriptor* descriptor, Uint16 codeSegment, Uint16 dataSegment);
 ;

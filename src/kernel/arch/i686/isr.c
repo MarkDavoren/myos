@@ -93,8 +93,10 @@ void __attribute__((cdecl)) isrHandler(ISRRegisters* regs)
         printf("  vectorNumber=%x  errorcode=%x\n",
                 regs->vectorNumber, regs->error);
         
-        printf("  ss=%x  esp=%x   -- ignore if no change in CPL\n",
-                regs->ss, regs->esp);
+        if ((regs->cs & 0x3) != 0) {
+            // Only print if we came from a different privilege level - bottom two bits of CS
+            printf("  ss=%x  esp=%x\n", regs->ss, regs->esp);
+        }
 
         printf("KERNEL PANIC!\n");
 
