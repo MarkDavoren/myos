@@ -27,3 +27,12 @@ i686_inb:
     xor eax, eax
     in al, dx
     ret
+
+;
+; Just leave me alone and let me stop!
+;
+
+global i686_halt
+i686_halt:
+    cli
+    hlt

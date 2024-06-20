@@ -1,3 +1,6 @@
 #pragma once
 
-void i686_GDT_Initialize();
+#define GDT_CODE_SEGMENT 0x08
+#define GDT_DATA_SEGMENT 0x10
+
+void gdtInitialize();

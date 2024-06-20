@@ -65,17 +65,17 @@ typedef enum
     GDT_BASE_HIGH(base)                                             \
 }
 
-GDTEntry g_GDT[] = {
+GDTEntry gdt[] = {
     // 0x00 - NULL descriptor
     GDT_ENTRY(0, 0, 0, 0),
 
-    // 0x08 - Kernel 32-bit code segment
+    // 0x08 - GDT_CODE_SEGMENT - Kernel 32-bit code segment
     GDT_ENTRY(0,
               0xFFFFF,
               GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_CODE_SEGMENT | GDT_ACCESS_CODE_READABLE,
               GDT_FLAG_32BIT | GDT_FLAG_GRANULARITY_4K),
 
-    // 0x10 - Kernel 32-bit data segment
+    // 0x10 - GDT_DATA_SEGMENT - Kernel 32-bit data segment
     GDT_ENTRY(0,
               0xFFFFF,
               GDT_ACCESS_PRESENT | GDT_ACCESS_RING0 | GDT_ACCESS_DATA_SEGMENT | GDT_ACCESS_DATA_WRITEABLE,
@@ -83,14 +83,12 @@ GDTEntry g_GDT[] = {
 
 };
 
-GDTDescriptor gtdDescriptor = { sizeof(g_GDT) - 1, g_GDT};
+GDTDescriptor gtdDescriptor = { sizeof(gdt) - 1, gdt};
 
+// In gdt.asm
 void __attribute__((cdecl)) i686_GDT_Load(GDTDescriptor* descriptor, Uint16 codeSegment, Uint16 dataSegment);
 
-#define i686_GDT_CODE_SEGMENT 0x08
-#define i686_GDT_DATA_SEGMENT 0x10
-
-void i686_GDT_Initialize()
+void gdtInitialize()
 {
-    i686_GDT_Load(&gtdDescriptor, i686_GDT_CODE_SEGMENT, i686_GDT_DATA_SEGMENT);
+    i686_GDT_Load(&gtdDescriptor, GDT_CODE_SEGMENT, GDT_DATA_SEGMENT);
 }

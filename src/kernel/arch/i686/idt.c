@@ -23,7 +23,7 @@ IDTDescriptor idtDescriptor = { sizeof(IDT) - 1, IDT };
 
 void __attribute__((cdecl)) i686_IDT_Load(IDTDescriptor* idtDescriptor);
 
-void i686_IDT_SetGate(int interrupt, void* base, Uint16 segmentDescriptor, Uint8 flags)
+void idtSetGate(int interrupt, void* base, Uint16 segmentDescriptor, Uint8 flags)
 {
     IDT[interrupt].baseLow = ((uint32_t)base) & 0xFFFF;
     IDT[interrupt].segmentSelector = segmentDescriptor;
@@ -32,17 +32,17 @@ void i686_IDT_SetGate(int interrupt, void* base, Uint16 segmentDescriptor, Uint8
     IDT[interrupt].baseHigh = ((uint32_t)base >> 16) & 0xFFFF;
 }
 
-void i686_IDT_EnableGate(int interrupt)
+void idtEnableGate(int interrupt)
 {
     FLAG_SET(IDT[interrupt].flags, IDT_FLAG_PRESENT);
 }
 
-void i686_IDT_DisableGate(int interrupt)
+void idtDisableGate(int interrupt)
 {
     FLAG_UNSET(IDT[interrupt].flags, IDT_FLAG_PRESENT);
 }
 
-void i686_IDT_Initialize()
+void idtInitialize()
 {
     i686_IDT_Load(&idtDescriptor);
 }

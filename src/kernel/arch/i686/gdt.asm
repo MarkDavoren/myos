@@ -1,6 +1,11 @@
 [bits 32]
 
+;
+; Load the GTD
+;
 ; void __attribute__((cdecl)) i686_GDT_Load(GDTDescriptor* descriptor, Uint16 codeSegment, Uint16 dataSegment);
+;
+
 global i686_GDT_Load
 i686_GDT_Load:
     
