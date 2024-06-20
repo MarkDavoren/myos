@@ -36,3 +36,20 @@ global i686_halt
 i686_halt:
     cli
     hlt
+
+;
+; Disable interrupts
+;
+
+global i686_disableInterrupts
+i686_disableInterrupts:
+    cli
+    ret
+
+;
+; Enable interrupts
+;
+global i686_enableInterrupts
+i686_enableInterrupts:
+    sti
+    ret
