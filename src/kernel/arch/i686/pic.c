@@ -1,3 +1,4 @@
+#include "pic.h"
 #include "stdtypes.h"
 #include "io.h"
 
@@ -9,11 +10,16 @@
  *
  * The PIC is used to prioritize and manage interrupts from multiple devices acting as a gatekeeper to the CPU
  * It may be cascaded allowing upto 64 interrupt request lines.
+ * 
  * We will assume a pair of PICs with PIC1 being the master and PIC2 the slave
+ * PIC1 will manage IRQs 0-7 (excluding IRQ2 which connects to the slave)
+ * PIC2 will manage IRQs 8-15
  * 
  * To configure a PIC, commands are sent to its command and data ports
  * First the PIC needs to be initialized. This requires four commands: ICW1 to ICW4
- * 
+ * We can instruct the PICs to mask (ignore) certain IRQs using OCW1
+ * We can send the End of Interrupt via OCW2
+ * We can read the PIC registers via OCW3
  */
 
 #define PIC1_COMMAND_PORT           0x20
@@ -76,7 +82,7 @@ enum {
     PIC_ICW4_BUFFERED_SLAVE     = 0X08,
     PIC_ICW4_BUFFERED_MASTER    = 0X0C,
     
-    PIC_ICW4_SFNM =0X10
+    PIC_ICW4_SFNM               = 0X10
 } PIC_ICW4;
 
 /*
@@ -114,7 +120,6 @@ enum {
  * 4            Always 0
  * 5-6          Special Mask Mode (not used)
  * 7            Always 0
- * 
  */
 
 enum {
@@ -124,14 +129,15 @@ enum {
 
 /*
  * Initialize the PICs
+ *
  * The PICs are hardwired in cascade. PIC1 is the master and PIC is the slave wired to IR2 of the master
  * Each PIC manages 8 interrupts and require 8 interrupt vector numbers in the IDT
  * PIC1's IVNs start at pic1BaseIVN, likewise PIC2 starts at pic2BaseIVN
+ * 
+ * On older machines it was necessary to give the PIC some time to process a command. Hence the iowait
  */
-void picInitialize(Uint8 pic1BaseIVN, Uint8 pic2BaseIVN)
+void picInitialize(Uint8 pic1BaseIVN, Uint8 pic2BaseIVN, Bool autoEol)
 {
-    // On older machines it was necessary to give the PIC some time to process a command. Hence the iowait
-
     // Initialization Control Word 1
     i686_outb(PIC1_COMMAND_PORT, PIC_ICW1_ICW4_REQUIRED | PIC_ICW1_INITIALIZE);
     i686_iowait();
@@ -140,22 +146,26 @@ void picInitialize(Uint8 pic1BaseIVN, Uint8 pic2BaseIVN)
 
     // Initialization Control Word 2
     // PIC1 will "own" interrupt vector numbers pic1BaseIVN to pic1BaseIVN + 7
-    // PIC2 will "own" interrupt vector numbers pic2BaseIVN to pic2BaseIVN + 7
     i686_outb(PIC1_DATA_PORT, pic1BaseIVN);
     i686_iowait();
+    // PIC2 will "own" interrupt vector numbers pic2BaseIVN to pic2BaseIVN + 7
     i686_outb(PIC2_DATA_PORT, pic2BaseIVN);
     i686_iowait();
 
     // Initialization Control Word 3
-    i686_outb(PIC1_DATA_PORT, 0x4);             // tell PIC1 that it has a slave at IRQ2 (0000 0100) Each corresponds to an IRn
+    i686_outb(PIC1_DATA_PORT, 0x4); // Tell PIC1 that it has a slave at IRQ2. Nth bit corresponds to IRn
     i686_iowait();
-    i686_outb(PIC2_DATA_PORT, 0x2);             // tell PIC2 its cascade identity as IRQ2 (0000 0010) Bits 0..2 encode octal value
+    i686_outb(PIC2_DATA_PORT, 0x2); // Tell PIC2 its cascade identity is IRQ2. Bits 0..2 encode octal value
     i686_iowait();
 
     // Initialization Control Word 4
-    i686_outb(PIC1_DATA_PORT, PIC_ICW4_X86);
+    Uint8 icw4 = PIC_ICW4_X86;
+    if (autoEol) {
+        icw4 |= PIC_ICW4_AUTO_EOI;
+    }
+    i686_outb(PIC1_DATA_PORT, icw4);
     i686_iowait();
-    i686_outb(PIC2_DATA_PORT, PIC_ICW4_X86);
+    i686_outb(PIC2_DATA_PORT, icw4);
     i686_iowait();
 
     // clear data registers
@@ -163,53 +173,52 @@ void picInitialize(Uint8 pic1BaseIVN, Uint8 pic2BaseIVN)
     i686_iowait();
     i686_outb(PIC2_DATA_PORT, 0);
     i686_iowait();
+
+    // Disable all interrupts until device drivers enable their own
+    picDisable();
 }
 
 /*
  * Operation Command Word 1
+ *
+ * Modify the interrupt mask
  */
+static Uint16 picCachedMask;
+
+Uint16 picGetMask()
+{
+    picCachedMask = i686_inb(PIC1_DATA_PORT) | (i686_inb(PIC2_DATA_PORT) << 8);
+    return picCachedMask;
+}
+
+void picSetMask(Uint16 mask)
+{
+    picCachedMask = mask;
+    i686_outb(PIC1_DATA_PORT, picCachedMask & 0xFF);
+    i686_iowait();
+    i686_outb(PIC2_DATA_PORT, picCachedMask >> 8);
+    i686_iowait();
+}
+
 void picMask(int irq)
 {
-    uint8_t port;
-
-    if (irq < 8) {
-        port = PIC1_DATA_PORT;
-    } else {
-        irq -= 8;
-        port = PIC2_DATA_PORT;
-    }
-
-    Uint8 mask = i686_inb(PIC1_DATA_PORT);
-    i686_outb(PIC1_DATA_PORT,  mask | (1 << irq));
-    i686_iowait();
+    picSetMask(picCachedMask | (1 << irq));
 }
 
 void picUnmask(int irq)
 {
-    uint8_t port;
-
-    if (irq < 8) {
-        port = PIC1_DATA_PORT;
-    } else {
-        irq -= 8;
-        port = PIC2_DATA_PORT;
-    }
-
-    Uint8 mask = i686_inb(PIC1_DATA_PORT);
-    i686_outb(PIC1_DATA_PORT,  mask & ~(1 << irq));
-    i686_iowait();
+    picSetMask(picCachedMask & ~(1 << irq));
 }
 
 void picDisable()
 {
-    i686_outb(PIC1_DATA_PORT, 0xFF);        // mask all
-    i686_iowait();
-    i686_outb(PIC2_DATA_PORT, 0xFF);        // mask all
-    i686_iowait();
+    picSetMask(0xFFFF);
 }
 
 /*
  * Operation Command Word 2
+ *
+ * Send End of Interrupt
  */
 
 void picSendEndOfInterrupt(int irq)
@@ -232,18 +241,31 @@ void picSendSpecificEndOfInterrupt(int irq)
 
 /*
  * Operation Command Word 3
+ *
+ * Get PIC registers
  */
 
 Uint16 picGetIRR()
 {
     i686_outb(PIC1_COMMAND_PORT, PIC_OCW3_READ_IRR);
     i686_outb(PIC2_COMMAND_PORT, PIC_OCW3_READ_IRR);
-    return ((Uint16)i686_inb(PIC2_COMMAND_PORT)) | (((Uint16)i686_inb(PIC2_COMMAND_PORT)) << 8);
+    return ((Uint16)i686_inb(PIC1_COMMAND_PORT)) | (((Uint16)i686_inb(PIC2_COMMAND_PORT)) << 8);
 }
 
 Uint16 picGetISR()
 {
     i686_outb(PIC1_COMMAND_PORT, PIC_OCW3_READ_ISR);
     i686_outb(PIC2_COMMAND_PORT, PIC_OCW3_READ_ISR);
-    return ((Uint16)i686_inb(PIC2_COMMAND_PORT)) | (((Uint16)i686_inb(PIC2_COMMAND_PORT)) << 8);
+    return ((Uint16)i686_inb(PIC1_COMMAND_PORT)) | (((Uint16)i686_inb(PIC2_COMMAND_PORT)) << 8);
+}
+
+/*
+ * Other functions
+ */
+
+Bool isPresent()
+{
+    picDisable();
+    picSetMask(0x1337);
+    return picGetMask() == 0x1337;
 }

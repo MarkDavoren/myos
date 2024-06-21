@@ -1,5 +1,5 @@
-#include "stdtypes.h"
 #include "irq.h"
+#include "stdtypes.h"
 #include "pic.h"
 #include "io.h"
 #include "stdio.h"
@@ -12,6 +12,7 @@ IRQHandler irqHandlers[MAX_NUM_IRQS];
 void irqRegisterHandler(int irq, IRQHandler handler)
 {
     irqHandlers[irq] = handler;
+    picUnmask(irq);
 }
 
 void irqCommonHandler(ISRRegisters* regs)
@@ -29,7 +30,7 @@ void irqCommonHandler(ISRRegisters* regs)
 
 void irqInitialize()
 {
-    picInitialize(PIC_BASE_IVN, PIC_BASE_IVN + 8);
+    picInitialize(PIC_BASE_IVN, PIC_BASE_IVN + 8, true);
 
     for (int ii = 0; ii < MAX_NUM_IRQS; ++ii) {
         isrRegisterHandler(PIC_BASE_IVN + ii, irqCommonHandler);
