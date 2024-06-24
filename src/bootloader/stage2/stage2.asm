@@ -35,6 +35,9 @@ entry:
     cli                 ; Disable interrupts while we setup the stack and go into protected mode
 
     mov [bootDrive], dl ; Save param
+    mov [partitionTableOffset], si
+    mov [partitionTableSegment], di
+
 
     ; Setup stack
     mov ax, ds          ; stage 1 set DS to the STAGE2_LOAD_SEGMENT
@@ -61,6 +64,7 @@ entry:
     ; 6 - Set segment registers
     mov ax, 0x10        ; 32 bit data segment in GDT
     mov ds, ax
+    mov es, ax
     mov ss, ax
 
     ; Prepare for C land
@@ -72,7 +76,14 @@ entry:
     cld                 ; Count down from ECX to zero
     rep stosb           ; Store AL into ES:EDI, EDI++, ECX-- until ECX == 0
 
-    ; Load param to start(Uint16 bootDrive)
+    ; Load param to start(Uint16 bootDrive, Partition* partitionTable)
+    mov dx, [partitionTableSegment]
+    shl edx, 4
+    xor eax, eax
+    mov ax, [partitionTableOffset]
+    add edx, eax
+    push edx
+
     xor edx, edx
     mov dl, [bootDrive]
     push edx
@@ -223,3 +234,5 @@ GDTDesc:                    ; Global Descriptor Table Descriptor
     dd GDT                  ; Address of GDT
    
 bootDrive: db 0
+partitionTableSegment: dw 0
+partitionTableOffset: dw 0

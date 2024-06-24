@@ -6,6 +6,7 @@
 #include "ctype.h"
 #include "string.h"
 #include "utility.h"
+#include "mbr.h"
 
 #define MAX_HANDLES 10
 
@@ -54,7 +55,7 @@ typedef struct {
     Uint32      remaining;          // Remaining bytes in sector
     Uint32      position;           // Current position in bytes
     Uint32      size;               // Maximum position in bytes
-    Uint8*  sector;                 // Buffer to hold current sector
+    Uint8*      sector;             // Buffer to hold current sector
 } File;
 
 typedef struct {
@@ -99,11 +100,11 @@ void printFile(File* file);
  * Public functions
  */
 
-Bool fatInitialize(Uint8 driveNumber)
+Bool fatInitialize(Uint8 driveNumber, Partition* part)
 {
     // Initialize disk
 
-    if (!diskInit(&fat->disk, driveNumber)) {
+    if (!diskInit(&fat->disk, driveNumber, part)) {
         printf("Failed to initialize disk %d\n", driveNumber);
         return false;
     }
@@ -480,8 +481,7 @@ Uint32 clusterToLBA(Uint32 cluster)
     Uint32 lba = fat->clusterBaseLBA + (cluster - 2) * fat->bpb.sectorsPerCluster;
     // TODO: Check lba calculations
     if (lba != cluster + 31) {
-        printf("lba = %lx, cluster = %ls\n", lba, cluster);
-        end();
+        printf("lba = %lx, cluster = %lx\n", lba, cluster);
     }
     return lba;
 }

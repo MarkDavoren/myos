@@ -102,11 +102,11 @@ bits 16
     bpb_reserved_sectors:       dw 1
     bpb_fat_count:              db 2
     bpb_dir_entries_count:      dw 0xE0         ; 224 decimal
-    bpb_total_sectors:          dw 2880         ; 2880 * 512 = 1.44MB
+    bpb_total_sectors:          dw 3840         ; 30 * 4 * 32
     bpb_media_descriptor_type:  db 0xF0         ; F0 = 3.5" floppy disk
     bpb_sectors_per_fat:        dw 9
-    bpb_sectors_per_track:      dw 18
-    bpb_heads:                  dw 2
+    bpb_sectors_per_track:      dw 32
+    bpb_heads:                  dw 4
     bpb_hidden_sectors:         dd 0
     bpb_large_sector_count:     dd 0            ; Only used if there are > 65535 sectors
 
@@ -170,143 +170,34 @@ start:
     mov [bpb_heads], dh ; BIOS sets DH to index of last head (zero indexed). Add one to get head count
 
 ;
-; Get root directory
+; Load stage 2
 ;
-    ; Compute LBA of root dir: reserved + FATs * size of FATs
-    mov ax, [bpb_sectors_per_fat]
-    mov bl, [bpb_fat_count]
-    xor bh, bh
-    mul bx              ; DX:AX = AX * BX. Given disk realities, assume DX is zero
-    add ax, [bpb_reserved_sectors]
-    push ax             ; Push LBA of root dir onto stack for later use
+;   - ax: LBA
+;   - cl: number of sectors to read (up to 128)
+;   - dl: drive number
+;   - es:bx: address of buffer to hold data read from disk
 
-    ; Compute size of root directory in bytes
-    mov ax, [bpb_dir_entries_count]
-    shl ax, 5           ; ax *= 32 (the size of a directory entry)
-    ; Convert that into sectors
-    xor dx, dx
-    div word [bpb_bytes_per_sector]  ; DX:AX / bps => AX = quotient, DX = remainder
-    test dx, dx
-    jz .root_dir_roundup
-    inc ax                  ; round up sector count if dir size not a multple of BPS
-.root_dir_roundup:
-
-    ; Read root directory into buffer
-    mov cl, al                  ; cl = size of root dir in sectors
-    pop ax                      ; ax = LBA of root dir calculated above
-    mov dl, [ebr_drive_number]  ; dl = drive number of disk
-    mov bx, buffer              ; es:bx = read buffer
-    call read_disk
-
-;
-; Search for stage2.bin
-;
-    xor bx, bx
-    mov di, buffer              ; DI points to the first directory entry
-
-.search_stage2:
-    ; The filename is the first field in a directory entry
-    mov si, stage2_filename
-    mov cx, 11
-    push di
-    ; The repe cmpsb instruction repeats while DS:SI == ES:DI up to CX times
-    ; incrementing SI and DI by 1 and decrementing CX by 1 each time
-    ; ZF is set if the strings are equal
-    repe cmpsb
-    pop di
-    je .found_stage2
-
-    add di, 32
-    inc bx
-    cmp bx, [bpb_dir_entries_count]
-    jl .search_stage2
-
-    mov si, stage2_not_found_msg
-    call puts
-    jmp wait_for_key_and_reboot
-
-.found_stage2:
-    ; DI points to directory entry for the stage2
-    mov ax, [di + 26]           ; The first cluster number of the file
-    mov [cluster], ax    ; Don't have enough registers so put in memory
-
-;
-; Load FAT
-;
-; Note that though there are bpb_fat_count FATs, we just use the first as the others are just copies
-;
-    ; We've got what we want from the root directory so we can use buffer to hold the FAT
-    mov ax, [bpb_reserved_sectors]  ; LBA of FAT
-    mov bx, buffer                  ; read buffer
-    mov cl, [bpb_sectors_per_fat]   ; number of sectors to read
+    mov ax, 1                       ; Start reading from sector 1
+    mov cl, [stage2_sector_size]    ; The size is set during the install process
+    mov bx, STAGE2_LOAD_SEGMENT     ; Load into memory at STAGE2_LOAD_SEGMENT:STAGE2_LOAD_OFFSET
+    mov es, bx
+    mov bx, STAGE2_LOAD_OFFSET
     mov dl, [ebr_drive_number]      ; drive number
     call read_disk
 
-    ; Set up a segmented address for the stage2 to be loaded into
-    mov bx, STAGE2_LOAD_SEGMENT
-    mov es, bx
-    mov bx, STAGE2_LOAD_OFFSET
+    ; Copy the partition table to somewhere safe
+    mov si, partition_table
+    mov ax, PARTITION_ENTRY_SEGMENT
+    mov es, ax
+    mov di, PARTITION_ENTRY_OFFSET
+    mov cx, 16
+    rep movsd                       ; Copy CX dwords from DS:SI to ES:DI
 
-;
-; Load stage2
-;
-    ; HACK ALERT!!!
-    ; The starting sector of a cluster is
-    ; cluster LBA = (cluster_number - 2) * sectors_per_cluster + start_data
-    ; where start_data = Reserved sectors + FAT sectors + root dir size
-    ;
-    ; Given
-    ;   - sectors_per_cluster = 1
-    ;   - reserved sectors = 1
-    ;   - FAT sectors = #FATS * sectors per FAT = 2 * 9 = 18
-    ;   - root dir size = roundup(#dir entries * 32 / bytes per sector) = 224 * 32 / 512 = 14
-    ; Then
-    ; cluster LBA = (cluster_number - 2) * 1 + 1 + 18 + 14 = cluster_number + 31
-.load_stage2_loop:
-    mov ax, [cluster]
-    add ax, 31
-    mov cl, 1
-    mov dl, [ebr_drive_number]
-    call read_disk
+    mov dl, [ebr_drive_number]      ; Pass the boot drive number to stage 2
+    mov si, PARTITION_ENTRY_OFFSET  ; Pass Partition table seg:off in di:si (di not ds!)
+    mov di, PARTITION_ENTRY_SEGMENT
 
-    add bx, [bpb_bytes_per_sector]  ; !!! Not checking for buffer overrun
-
-    ; Compute next cluster number
-    ; In FAT 12, cluster numbers in the FAT are 12 bits long
-    ; So multiply the cluster number by 3/2 to get a word index into the FAT
-    ; If the cluster number is even, we want the bottom 12 bits
-    ; Otherwise we want the top 12 bits
-    ; 
-    mov ax, [cluster]
-    mov cx, 3
-    mul cx
-    mov cx, 2
-    div cx          ; AX = index, DX = (cluster * 3) % 2
-
-    mov si, buffer
-    add si, ax
-    mov ax, [ds:si]
-
-    ; If DX is zero then cluster is even: get bottom 12 bits
-    ; If DX is non-zero then cluster is odd: get top 12 bits
-    or dx, dx
-    jz .even
-    shr ax, 4
-    jmp .got_next_cluster
-.even:
-    and ax, 0x0FFF
-.got_next_cluster:
-
-    cmp ax, 0x0FF8
-    jae .read_finish
-
-    mov [cluster], ax
-    jmp .load_stage2_loop
-
-.read_finish:
-    mov dl, [ebr_drive_number]
-
-    mov ax, STAGE2_LOAD_SEGMENT
+    mov ax, STAGE2_LOAD_SEGMENT     ; Set segment registers for stage 2
     mov ds, ax
     mov es, ax
 
@@ -493,11 +384,6 @@ disk_error:
     call puts
     jmp wait_for_key_and_reboot
 
-stage2_not_found:
-    mov si, stage2_not_found_msg
-    call puts
-    jmp wait_for_key_and_reboot
-    
 wait_for_key_and_reboot:
     mov ah, 0
     int 16h
@@ -519,19 +405,24 @@ halt:
 ; Strings
 
 disk_failure_msg: db 'Disk operation failed!', ENDL, 0
-stage2_not_found_msg: db 'STAGE2.BIN not found!', ENDL, 0
 hello_msg: db 'Hello', ENDL, 0
-
-stage2_filename: db 'STAGE2  BIN'
-
-cluster: dw 0
-
-times 510-($-$$) db 0
-dw 0xAA55
-
-buffer:                 ; This will be at 0x7E00
 
 ; Load the stage2 into memory starting at 0x0500
 STAGE2_LOAD_SEGMENT equ 0x0
 STAGE2_LOAD_OFFSET  equ 0x500
+
+; Copy the partition table to 0x20000
+PARTITION_ENTRY_SEGMENT equ 0x2000
+PARTITION_ENTRY_OFFSET  equ 0x0
+
+times 512 -2 -4 -2 -64 -2 -($-$$) db 0
+
+; These data structures go at the end of the boot sector so the previous line adds just teh right amount of padding
+pad: db 0
+global stage2_sector_size
+stage2_sector_size: db 0            ; Size of stage 2 in sectors (non-standard)
+UDID: dd 0x12345678                 ; Unique Disk ID
+Reserved: dw 0                      ; Reserved
+partition_table: times 64 db 0      ; Partition table. 4 entries each 16 bytes long
+boot_sig: dw 0xAA55                 ; The boot signature without which the BIOS won't recognize this as a boot sector
 

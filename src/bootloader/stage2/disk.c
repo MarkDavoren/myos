@@ -1,12 +1,13 @@
 #include "stdtypes.h"
 #include "disk.h"
 #include "bios.h"
+#include "mbr.h"
 #include "stdio.h"
 
 /*
  *  Initialize the Disk object for the specified drive number from BIOS details
  */
-Bool diskInit(Disk* disk, Uint8 driveNumber)
+Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part)
 {
     Uint16 numCylinders, numHeads, numSectors;
 
@@ -18,9 +19,9 @@ Bool diskInit(Disk* disk, Uint8 driveNumber)
     disk->numCylinders = numCylinders;
     disk->numHeads = numHeads;
     disk->numSectors = numSectors;
+    disk->offset = part->lba;
 
     return true;
-
 }
 
 /*
@@ -31,6 +32,8 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
     Uint16 cylinder, head, sector;
     Uint8 status;
     Bool ok;
+
+    lba += disk->offset;
 
     sector = (lba % disk->numSectors) + 1;
     cylinder = (lba / disk->numSectors) / disk->numHeads;
@@ -47,6 +50,7 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
     for (int retries = 0; retries < 3; retries++) {
         ok = bios_readDisk(disk->id, cylinder, head, sector, count, buffer, &status);
         printf("OK = %x, Status = %x\n", ok, status);
+
         if (ok) {
             return true;
         }

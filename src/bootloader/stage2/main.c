@@ -6,17 +6,21 @@
 #include "utility.h"
 #include "memdefs.h"
 #include "string.h"
+#include "mbr.h"
 
 typedef void (*KernelStart)();
 void jumpToKernel();
 
-void __attribute__((cdecl)) start(Uint16 bootDrive)
+void __attribute__((cdecl)) start(Uint16 bootDrive, void* partitionTable)
 {
     Bool ok;
     clearScreen();
-    printf("Hello from stage 2\n");
-    
-    ok = fatInitialize(bootDrive);
+    printf("Stage1\n");
+    printf("Hello from stage 2 boot drive = %x, partition table at %x\n", bootDrive, partitionTable);
+
+    printPartitionTable(partitionTable);
+
+    ok = fatInitialize(bootDrive, partitionTable);  // TODO: Assuming use first partition. Need fix for floppy
     printf("fatInitialize: ok = %d\n", ok);
 
     Handle fin = fatOpen("/kernel.bin");

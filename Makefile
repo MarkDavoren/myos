@@ -1,29 +1,30 @@
 include build_scripts/config.mk
 
-.PHONY: all floppy_image clean always
+.PHONY: all disk_image clean always
 
-all: always floppy_image
+all: always disk_image
 
 include build_scripts/toolchain.mk
 
-#
-# Floppy image
-#
-floppy_image: $(BUILD_DIR)/main_floppy.img
+IMAGE:=myos_disk.img
+IMAGE_COMPONENTS := $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel.bin
 
-FLOPPY_COMPONENTS := $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel.bin
+disk_image: $(BUILD_DIR)/$(IMAGE)
 
-$(BUILD_DIR)/main_floppy.img: $(FLOPPY_COMPONENTS)
-	@dd if=/dev/zero of=$@ bs=512 count=2880 >/dev/null
-	@mkfs.fat -F 12 -n "NBOS" $@ >/dev/null
-	@dd if=$(BUILD_DIR)/stage1.bin of=$@ conv=notrunc >/dev/null
-	@mcopy -i $@ $(BUILD_DIR)/stage2.bin "::stage2.bin"
-	@mcopy -i $@ $(BUILD_DIR)/kernel.bin "::kernel.bin"
-	@mcopy -i $@ test.txt "::test.txt"
-	@mcopy -i $@ test2.txt "::test2.txt"
-	@mmd -i $@ "::mydir"
-	@mcopy -i $@ test.txt "::mydir/test.txt"
-	@echo "--> Created: " $@
+export MTOOLSRC:=$(shell mktemp)
+$(BUILD_DIR)/$(IMAGE): $(IMAGE_COMPONENTS)
+	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
+		xxd -r - $(BUILD_DIR)/stage1.bin
+	dd if=/dev/zero of=$@ bs=512 count=3840 > /dev/null 2>&1
+	dd if=$(BUILD_DIR)/stage1.bin of=$@ conv=notrunc > /dev/null 2>&1
+	dd if=$(BUILD_DIR)/stage2.bin of=$@ seek=1 conv=notrunc > /dev/null 2>&1
+	echo "drive c: file=\"$@\" partition=1" > $(MTOOLSRC)
+	mpartition -I c:
+	mpartition -c -t 30 -h 4 -s 32 c:
+	mformat c:
+	mcopy $(BUILD_DIR)/kernel.bin "c:kernel.bin"
+	mcopy test.txt "c:test.txt"
+	rm -f $(MTOOLSRC)
 
 #
 # Bootloader
@@ -53,5 +54,11 @@ clean:
 	@$(MAKE) -C src/bootloader/stage1 BUILD_DIR=$(abspath $(BUILD_DIR)) clean
 	@$(MAKE) -C src/bootloader/stage2 BUILD_DIR=$(abspath $(BUILD_DIR)) clean
 	@$(MAKE) -C src/kernel BUILD_DIR=$(abspath $(BUILD_DIR)) clean
-	rm -f $(BUILD_DIR)/main_floppy.img
+	rm -f $(BUILD_DIR)/$(IMAGE)
 	rm -rf $(BUILD_DIR)
+
+run:
+	qemu-system-i386 -drive file=$(BUILD_DIR)/$(IMAGE),index=0,media=disk,format=raw
+
+debug:
+	bochs -f bochs_config
