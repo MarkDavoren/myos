@@ -3,35 +3,60 @@ bits 16
 
 %define ENDL 0x0D, 0x0A
 
-;
-; This file is compiled into a 512 byte raw image.
-; It is used as the Master Boot Record of a floppy disk
-; As such it must follow certain rules.
-;   - It must be exactly 512 bytes long
-;   - It must end with 0xAA55
-;   - It must start with the BIOS Parameter Block
-;   - It must expect to be loaded at 0x0000:0x7C00
-;   - It must expect to start execution at 0x0000:0x7C00
-;
 ; The objectives of this code are:
 ;   - Set key registers to a known state, e.g. setup stack
-;   - Load "STAGE2.BIN" from the FAT12 filesystem on floppy
+;   - Load "STAGE2.BIN"
 ;   - Jump to stage2
+;
+; This file is compiled to fit into a 512 byte (1 sector) raw image.
+; It is used as the Master Boot Record (MBR) of a bootable disk
+; As such it must follow certain rules.
+;   - It must be exactly 512 bytes long
+;   - It must expect to be loaded at 0x0000:0x7C00
+;   - It must expect to start execution at 0x0000:0x7C00
+;   - It must end with 0xAA55
+;   - So as to also work for hard disks, preceding the AA55 must be 64 bytes for the partition table
+;   - Preceding the partition table should be 6 bytes
+;   - We claim the byte before that as a fixed location into which the build process stores
+;       the size in sectors of stage2.bin
+;
+; There are a few ways to set up and use the MBR.
+; For a non-partitioned FAT disk, such as a floppy, the BIOS Parameter Block must be set up,
+;   either here: the values in this file survive into the final image
+;   or by the build process: in which case the BPB and EBR here are ignored and the values are set by mkfs.fat
+; Alternatively, for a partitioned disk, we are not using FAT for the area before the partitions including the MBR
+;   So the BPB and the EBR here are ignored.
+;
+; Stage1 does not use the BPB or EBR.
+;   It gets the drive number from DL upon handover from the BIOS
+;   And sectors per track and number of heads from BIOS int 13h, AH=08
+; They are important only to build tools like mcopy.
+;   In particular, the number of reserved sectors need to be set so the tools can find the FAT and root dir
+;
+; Stage2.bin is expected to stored on the disk starting at sector 1 immediately after the MBR
+;
+; Assumptions:
+;   The build process will store the size in sectors of stage2.bin in
+;     stage2_sector_size which will always be at 0x1b7
+;   If the build process uses the MBR values set here then it must update
+;     bpb_reserved_sectors with the size in sectors of stage2.bin + 1(for the MBR)
+;     I guess I could use a single location for stage 2 size, but that would tie stage1 to having a BPB
 
 ;
 ; Floppy disks used the FAT12 filesystem
 ;
 ; https://wiki.osdev.org/FAT#FAT_12
 ;
-; A FAT12 disk is laid out as follows:
-;   - The Reserved area starting with the Master Boot Record
-;   - The File Allocation Tables (FAT)
-;   - The Root directory
-;   - The Data
+; The disk has the following areas
+;   Section                 Size in sectors
+;   Reserved sectors        bpb_reserved_sectors including the boot sector
+;   FATs                    bpb_fat_count * bpb_sectors_per_fat
+;   The Root directory      roundup(bpb_dir_entries_count * 32 / bpb_bytes_per_sector)
+;   The Data                The remainder of the disk
 ;
 ; The Master Boot Record is laid out as follows:
-;   - The BIOS Parameter Block
-;   - The Extended BIOS Parameter Block
+;   - The BIOS Parameter Block (BPB) - starting with a jump to the boot code
+;   - The Extended Boot Record (EBR)
 ;   - The boot code
 ;   - the boot signature: 0xAA55
 ;
@@ -54,44 +79,11 @@ bits 16
 ;   little of interest to us. We will get the actual drive number from
 ;   the BIOS and store it in ebr_drive_number
 ;
-; Disk Layout
-; The disk has the following areas
-;   Section                 Size in sectors
-;   Reserved sectors        bpb_reserved_sectors
-;   FATs                    bpb_fat_count * bpb_sectors_per_fat
-;   The Root directory      roundup(bpb_dir_entries_count * 32 / bpb_bytes_per_sector)
-;   The Data                The remainder of the disk
-;
-; Root directory
-; Consists bpb_dir_entries_count entries, each structured as follows
-;   Offset  Length  Meaning
-;   0       11      8.3 file name
-;   11      1       File attributes
-;   12      1       Reserved
-;   13      1       Creation time hundredths of a second
-;   14      2       Creation time
-;   16      2       Creation date
-;   18      2       Last accessed date
-;   20      2       High 16 bits of first cluster number. Always zero in FAT12
-;   22      2       Last modification time
-;   24      2       Last modification date
-;   26      2       Low 16 bits of first cluster number
-;   28      4       Size of file in bytes
-;
-; File Allocation Tables
-; Typically there are two FATs in the disk, but the second is a backup copy and is usually ignored
-;
-; The FAT12 filesystem stores files as a sequence of clusters of size bpb_sectors_per_cluster sectors
-; The directory entry for a file contains its starting cluster number
-;
-; In FAT12, 12 bits are used to represent a cluster number
-; The FAT is a table of cluster numbers. Use the starting cluster number
-; as an index into the FAT to find the next cluster number of the file
-; Use that number to find the next and so forth until you reach a cluster number >= 0xFF8
-;   
 
 ;
 ; BIOS Parameter Block
+;
+; WARNING: DEPENDING ON THE BUILD PROCESS, THESE VALUES MAY BE IGNORED!!!
 ;
     jmp short start                             ; 3 bytes to jump to main code
     nop                                         ;
@@ -99,14 +91,14 @@ bits 16
     bpb_oem:                    db 'MSWIN4.1'   ; 8 bytes - ignored
     bpb_bytes_per_sector:       dw 512
     bpb_sectors_per_cluster:    db 1
-    bpb_reserved_sectors:       dw 1
+    bpb_reserved_sectors:       dw 1            ; If used then must be updated by the build process
     bpb_fat_count:              db 2
-    bpb_dir_entries_count:      dw 0xE0         ; 224 decimal
-    bpb_total_sectors:          dw 3840         ; 30 * 4 * 32
+    bpb_dir_entries_count:      dw 224          ; 0xE0
+    bpb_total_sectors:          dw 2880         ; => 2880 / (18 * 2) = 80 cylinders
     bpb_media_descriptor_type:  db 0xF0         ; F0 = 3.5" floppy disk
     bpb_sectors_per_fat:        dw 9
-    bpb_sectors_per_track:      dw 32
-    bpb_heads:                  dw 4
+    bpb_sectors_per_track:      dw 18
+    bpb_heads:                  dw 2
     bpb_hidden_sectors:         dd 0
     bpb_large_sector_count:     dd 0            ; Only used if there are > 65535 sectors
 
