@@ -18,12 +18,12 @@ $(BUILD_DIR)/$(DISK_IMAGE): $(IMAGE_COMPONENTS)
 	# Here we are setting a location in stage1 so it knows how many sectors of stage2.bin it should read in
 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
 		xxd -r - $(BUILD_DIR)/stage1.bin
-	dd if=/dev/zero of=$@ bs=512 count=3840 > /dev/null 2>&1
+	dd if=/dev/zero of=$@ bs=512 count=263000 > /dev/null 2>&1
 	dd if=$(BUILD_DIR)/stage1.bin of=$@ conv=notrunc > /dev/null 2>&1
 	dd if=$(BUILD_DIR)/stage2.bin of=$@ seek=1 conv=notrunc > /dev/null 2>&1
 	echo "drive c: file=\"$@\" partition=1" > $(MTOOLSRC)
 	mpartition -I c:
-	mpartition -c -t 30 -h 4 -s 32 c:
+	mpartition -c -t 256 -h 32 -s 32 c:
 	mformat c:
 	mcopy $(BUILD_DIR)/kernel.bin "c:kernel.bin"
 	mcopy test.txt "c:test.txt"

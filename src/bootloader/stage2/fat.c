@@ -18,15 +18,43 @@ typedef struct
     Uint8  sectorsPerCluster;
     Uint16 reservedSectors;
     Uint8  FatCount;
-    Uint16 dirEntriesCount;
-    Uint16 totalSectors;
+    Uint16 rootDirCount;        // This field is zero in FAT32. The root dir is a regular cluster-based directory
+    Uint16 totalSectors16;      // Must be zero for FAT32. If zero use totalSectors32
     Uint8  mediaDescriptorType;
-    Uint16 sectorsPerFat;
+    Uint16 sectorsPerFat16;     // FAT12/16 use this field. For FAT32 this field must be zero; use sectorsPerFat32
     Uint16 sectorsPerTrack;
     Uint16 heads;
     Uint32 hiddenSectors;
-    Uint32 largeSectorCount;
+    Uint32 totalSectors32;      // For FAT12/16, use this value if totalSectors16 == 0. For FAT32 always use this field
 } __attribute__((packed)) BiosParameterBlock;
+
+/*
+ * There is nothing of interest in here. If we need the EBR, it will always be EBR32
+ */
+typedef struct {
+    Uint8  driveNumber;
+    Uint8  reservedNT;
+    Uint8  signature;
+    Uint32 volumeID;
+    Uint8  volumeLabel[11];
+    Uint8  fsType[8];
+} __attribute__((packed)) EBR1216;
+
+typedef struct {
+    Uint32 sectorsPerFat32;     // FAT32 uses this field and ignores sectorsPerFat16 whcih must be zero
+    Uint16 flags;
+    Uint16 fsVersion;
+    Uint32 rootCluster;
+    Uint16 fsInfoSector;
+    Uint16 bootSecondary;
+    Uint8  reserved32[12];
+    Uint8  driveNumber;
+    Uint8  reservedNT;
+    Uint8  signature;
+    Uint32 volumeID;
+    Uint8  volumeLabel[11];
+    Uint8  fsType[8];
+} __attribute__((packed)) EBR32;
 
 typedef struct 
 {
@@ -43,6 +71,23 @@ typedef struct
     Uint16 firstClusterLow;
     Uint32 size;
 } __attribute__((packed)) DirectoryEntry;
+
+enum FatAttributes
+{
+    FAT_ATTRIBUTE_READ_ONLY         = 0x01,
+    FAT_ATTRIBUTE_HIDDEN            = 0x02,
+    FAT_ATTRIBUTE_SYSTEM            = 0x04,
+    FAT_ATTRIBUTE_VOLUME_ID         = 0x08,
+    FAT_ATTRIBUTE_DIRECTORY         = 0x10,
+    FAT_ATTRIBUTE_ARCHIVE           = 0x20,
+    FAT_ATTRIBUTE_LFN               = FAT_ATTRIBUTE_READ_ONLY | FAT_ATTRIBUTE_HIDDEN | FAT_ATTRIBUTE_SYSTEM | FAT_ATTRIBUTE_VOLUME_ID
+};
+
+typedef enum {
+    FAT12,
+    FAT16,
+    FAT32
+} FatType;
 
 typedef struct {
     Uint8       id;                 // Handle
@@ -61,10 +106,15 @@ typedef struct {
 typedef struct {
     Disk        disk;               // Disk geometry details
     BiosParameterBlock  bpb;        // BIOS Parameter Block
+    union {
+        EBR1216 ebr1216;
+        EBR32   ebr32;
+    } ebr;
     Uint8*      FAT;                // Address of File Allocation Table
     Uint32      rootDirLBA;         // LBA of root directory
     Uint32      clusterBaseLBA;     // LBA of cluster table
     Uint8*      dataSectors;        // Address of storage holding a sector for each files entry
+    FatType     fatType;            // One of FAT12, FAT16, or FAT32
     File        files[MAX_HANDLES]; // Array of Files. One for each possible handle value
 } FatData;
 
@@ -74,6 +124,7 @@ static FatData* fat = (FatData*) FAT_MEM_ADDRESS;
  * Forward declarations
  */
 
+FatType getFatType(FatData* fat);
 File* openRootDir();
 File* openFile(DirectoryEntry* entry);
 Uint32 readFile(File* file, Uint32 count, Uint8* buff);
@@ -85,11 +136,13 @@ Bool readDirEntry(File* dir, DirectoryEntry* entry);
 Bool readNextSector(File* dir);
 Bool readNextSectorFromRootDir(File* dir);
 Bool readNextSectorFromFile(File* file);
-Uint16 getNextClusterNumber(Uint16 current);
+Uint32 getNextClusterNumber(Uint32 current);
 Uint32 clusterToLBA(Uint32 cluster);
 void convert8D3ToString(const char* name, char* out);
 void convertStringTo8D3(const char* name, char* out);
 
+void printBPB(BiosParameterBlock* bpb);
+void printEBR32(EBR32* ebr);
 void printDirSector(File* dir);
 void printFAT();
 void printDirectoryEntry(DirectoryEntry* entry);
@@ -119,30 +172,41 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
         printf("Failed to read MBR of disk %d\n", driveNumber);
         return false;
     }
+    printf("tmp = %p, tmp2 = %p\n", tmp, (tmp + sizeof(BiosParameterBlock)));
     fat->bpb = *(BiosParameterBlock*) tmp;
+    fat->ebr.ebr32 = *(EBR32*) (tmp + sizeof(BiosParameterBlock));
+
+    printBPB(&fat->bpb);
+    printEBR32(&fat->ebr.ebr32);
+    fat->fatType = getFatType(fat);
+    printf("FAT Type = %d\n", fat->fatType);
+
+    // printf("Stopping after EBR\n");
+    // for (;;) ;
 
     // Load FAT
     // Load the entire first FAT. TODO: This is not scalable, but will be fine for 1.44MB floppy
 
     fat->FAT = (Uint8*) (FAT_MEM_ADDRESS + sizeof(FatData));   // Hold FAT in mem right after fat
-    if (!diskRead(
+    if (!diskBigRead(
             &fat->disk,
             fat->bpb.reservedSectors,   // Start of FAT on disk
-            fat->bpb.sectorsPerFat,     // Read the entire first FAT. Ignore the others as they are copies
+            fat->bpb.sectorsPerFat16,     // Read the entire first FAT. Ignore the others as they are copies
             (Uint8*) fat->FAT)) {
         printf("Failed to read FAT of disk %d\n", driveNumber);
         return false;
     }
+    printFAT();
 
     fat->dataSectors = (Uint8*) FAT_MEM_ADDRESS;
-    Uint32 offset = align((Uint32)(sizeof(FatData) + fat->bpb.sectorsPerFat * fat->bpb.bytesPerSector),
+    Uint32 offset = align((Uint32)(sizeof(FatData) + fat->bpb.sectorsPerFat16 * fat->bpb.bytesPerSector),
                           (Uint32)fat->bpb.bytesPerSector);
     fat->dataSectors += offset;
 
     // Save LBA of root directory and entries/sector
-    fat->rootDirLBA = fat->bpb.reservedSectors + fat->bpb.FatCount * fat->bpb.sectorsPerFat;
+    fat->rootDirLBA = fat->bpb.reservedSectors + fat->bpb.FatCount * fat->bpb.sectorsPerFat16;
 
-    Uint32 rootDirSizeInBytes = fat->bpb.dirEntriesCount * sizeof(DirectoryEntry);
+    Uint32 rootDirSizeInBytes = fat->bpb.rootDirCount * sizeof(DirectoryEntry);
     Uint32 rootDirSizeInSectors = (rootDirSizeInBytes + fat->bpb.bytesPerSector - 1) / fat->bpb.bytesPerSector;
     fat->clusterBaseLBA = fat->rootDirLBA + rootDirSizeInSectors;
 
@@ -222,6 +286,39 @@ void fatClose(Handle handle)
  * Private functions
  */
 
+FatType getFatType(FatData* fat)
+{
+    // In order to allow use of FAT32 on smaller file systems, we cheat and just look at rootDirCount
+    if (fat->bpb.rootDirCount == 0) {
+        return FAT32;
+    }
+
+    /*
+     * This is the official way to determine which FAT file system is in use
+     * https://academy.cba.mit.edu/classes/networking_communications/SD/FAT.pdf
+     * Note: If the filesystem is FAT12 or 16 then this algorithm will not access ebr
+     */
+
+    Uint32 rootDirSectors =
+        ((fat->bpb.rootDirCount * sizeof(DirectoryEntry)) + fat->bpb.bytesPerSector -1) / fat->bpb.bytesPerSector;
+    Uint32 sectorsPerFat = (fat->bpb.sectorsPerFat16 == 0) ? fat->ebr.ebr32.sectorsPerFat32 : fat->bpb.sectorsPerFat16;
+    Uint32 totalSectors = (fat->bpb.totalSectors16 == 0) ? fat->bpb.totalSectors32 : fat->bpb.totalSectors16;
+    Uint32 dataSectors = totalSectors - (fat->bpb.reservedSectors + (fat->bpb.FatCount * sectorsPerFat) + rootDirSectors);
+
+    Uint32 numClusters = dataSectors / fat->bpb.sectorsPerCluster;
+
+    printf("GFT: rds=%d, spf=%d, ts=%d, ds=%d, nc=%d\n",
+        rootDirSectors, sectorsPerFat, totalSectors, dataSectors, numClusters);
+
+    if (numClusters < 4085) {
+        return FAT12;
+    } else if (numClusters < 65525) {
+        return FAT16;
+    } else {
+        return FAT32;
+    }
+}
+
 File* openRootDir()
 {
     int handle = getFreeHandle();
@@ -236,7 +333,7 @@ File* openRootDir()
     dir->sectorInCluster = 0;                   // N/A for the root dir
     dir->remaining = 0;                         // This will cause first read to load first sector
     dir->position = 0;                          // For directories, position is current entry#
-    dir->size = fat->bpb.dirEntriesCount * fat->bpb.bytesPerSector;
+    dir->size = fat->bpb.rootDirCount * fat->bpb.bytesPerSector;
     dir->sector = &fat->dataSectors[handle * fat->bpb.bytesPerSector]; // Set up space, read will be on demand
 
     return dir;
@@ -462,17 +559,28 @@ Bool readNextSectorFromFile(File* file)
     return true;
 }
 
-Uint16 getNextClusterNumber(Uint16 current)
+Uint32 getNextClusterNumber(Uint32 current)
 {
-    Uint16 index = (current * 3) / 2;
-    Uint16 next = *(Uint16*)&fat->FAT[index];
-    //printf("index = 0x%x, next=0x%x\n", index, next);
-    if ((current % 2) == 0) {
-        next &= 0xFFF;
+    Uint32 next;
+
+    if (fat->fatType == FAT12) {
+        Uint32 index = current + (current / 2);
+        next = *(Uint16*)&fat->FAT[index];
+        if ((current % 2) == 0) {
+            next &= 0xFFF;
+        } else {
+            next >>= 4;
+        }
+    } else if (fat->fatType == FAT16) {
+        Uint32 index = current * 2;
+        next = *(Uint16*)&fat->FAT[index];
+        printf("FAT16: index=%d, FAT = %p, [%x %x]\n", index, fat->FAT, fat->FAT[index], fat->FAT[index+1]);
     } else {
-        next >>= 4;
+        printf("FAT32 not implemented!!\n");
+        for (;;) ;
     }
 
+    printf("current = %x, next = %x\n", current, next);
     return next;
 }
 
@@ -557,6 +665,38 @@ void convertStringTo8D3(const char* name, char* out)
  * Debugging functions
  */
 
+void printBPB(BiosParameterBlock* bpb)
+{
+    printf("BPB: bps=%d, spc=%d, rs=%d, fc=%d, rdc=%d\n",
+        bpb->bytesPerSector,
+        bpb->sectorsPerCluster,
+        bpb->reservedSectors,
+        bpb->FatCount,
+        bpb->rootDirCount);
+    printf("BPB: ts=%d, spt=%d, h=%d, hs=%d, ts32=%d\n",
+        bpb->totalSectors16,
+        bpb->sectorsPerFat16,
+        bpb->sectorsPerTrack,
+        bpb->heads,
+        bpb->hiddenSectors,
+        bpb->totalSectors32);
+}
+
+void printEBR32(EBR32* ebr)
+{
+    printf("EBR32: spf32=%d, flags=%x, ver=%x, rc=%x, fsinfo=%d\n",
+        ebr->sectorsPerFat32,
+        ebr->flags,
+        ebr->fsVersion,
+        ebr->rootCluster,
+        ebr->fsInfoSector);
+    printf("EBR32: bootsec=%d, drive=%x, sig=%x, volID=%x\n",
+        ebr->bootSecondary,
+        ebr->driveNumber,
+        ebr->signature,
+        ebr->volumeID);
+}
+
 void printFAT()
 {
     // In FAT 12, cluster numbers in the FAT are 12 bits long
@@ -569,17 +709,17 @@ void printFAT()
     }
     printf("\n");
 
-    for (Uint32 cluster = 0; cluster < 16; ++cluster) {
-        Uint16 index = (cluster * 3) / 2;
-        Uint16 value = *(Uint16*)&fat->FAT[index];
-        if ((cluster % 2) == 0) {
-            value &= 0xFFF;
-        } else {
-            value >>= 4;
-        }
-        printf("%x ", value);
-    }
-    printf("\n");
+    // for (Uint32 cluster = 0; cluster < 16; ++cluster) {
+    //     Uint16 index = (cluster * 3) / 2;
+    //     Uint16 value = *(Uint16*)&fat->FAT[index];
+    //     if ((cluster % 2) == 0) {
+    //         value &= 0xFFF;
+    //     } else {
+    //         value >>= 4;
+    //     }
+    //     printf("%x ", value);
+    // }
+    // printf("\n");
 }
 
 void printDirSector(File* dir)

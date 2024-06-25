@@ -11,24 +11,35 @@
 typedef void (*KernelStart)();
 void jumpToKernel();
 
+void fatal(char* msg)
+{
+    printf("FATAL error %s\n:, msg");
+    for (;;) ;
+}
+
 void __attribute__((cdecl)) start(Uint16 bootDrive, void* partitionTable)
 {
     Bool ok;
     clearScreen();
-    printf("Stage1\n");
-    printf("Hello from stage 2 boot drive = %x, partition table at %x\n", bootDrive, partitionTable);
+    printf("Hello from Stage2. Boot drive = %x\n", bootDrive);
 
     printPartitionTable(partitionTable);
 
-    ok = fatInitialize(bootDrive, partitionTable);  // TODO: Assuming use first partition. Need fix for floppy
+    ok = fatInitialize(bootDrive, partitionTable);  // TODO: Assumes using first partition
+    if (!ok) {
+        fatal("fatInitialize returned false");
+    }
     printf("fatInitialize: ok = %d\n", ok);
 
     Handle fin = fatOpen("/kernel.bin");
+    if (!ok) {
+        fatal("fatOpen returned false");
+    }
     printf("fatOpen: fin = %u\n", fin);
 
     Uint8* kp = KERNEL_LOAD_ADDR;
     Uint32 count;
-    while ((count = fatRead(fin, SCRATCH_MEM_SIZE, SCRATCH_MEM_ADDRESS)) > 0) {
+    while ((count = fatRead(fin, 512 /*SCRATCH_MEM_SIZE*/, SCRATCH_MEM_ADDRESS)) > 0) {  // TODO Undo debug hack
         printf("Copying %x bytes from %p to %p\n", count, SCRATCH_MEM_ADDRESS, kp);
         memcpy(kp, SCRATCH_MEM_ADDRESS, count);
         kp += count;

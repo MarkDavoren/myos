@@ -4,5 +4,8 @@
         "stdtypes.h": "c",
         "binary.h": "c",
         "armv7m-1.C": "cpp"
+    },
+    "search.exclude": {
+        "**/toolchain": true
     }
 }

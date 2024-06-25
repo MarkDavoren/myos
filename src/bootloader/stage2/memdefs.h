@@ -35,9 +35,9 @@
  */
 
 #define FAT_MEM_ADDRESS     ((void*) 0x20000)
-#define FAT_MEM_SIZE        0x10000
+#define FAT_MEM_SIZE        0x20000
 
-#define SCRATCH_MEM_ADDRESS ((void*) 0x30000)
+#define SCRATCH_MEM_ADDRESS ((void*) 0x50000)
 #define SCRATCH_MEM_SIZE    0x10000
 
 #define KERNEL_LOAD_ADDR    ((void*) 0x100000)

@@ -63,3 +63,22 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
 
     return false;
 }
+
+Bool diskBigRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff)
+{
+    Uint16 limit = count;
+    if (limit > 128) {
+        limit = 128;
+    }
+
+    while (count > 0) {
+        if (!diskRead(disk, lba, limit, buff)) {
+            return false;
+        }
+        lba += limit;
+        buff += limit * 512;     // TODO: Hardcoded value
+        count -= limit;
+    }
+
+    return true;
+}
