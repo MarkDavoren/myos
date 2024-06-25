@@ -13,6 +13,7 @@ IMAGE_COMPONENTS := $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)
 disk_image: $(BUILD_DIR)/$(DISK_IMAGE)
 
 export MTOOLSRC:=$(shell mktemp)
+FAT32 = -F # Forces FAT32 even though there aren't enough clusters. fdisk won't recognize it. Unset this for FAT16
 $(BUILD_DIR)/$(DISK_IMAGE): $(IMAGE_COMPONENTS)
 	# Use the partitioned strategy for hard disks
 	# Here we are setting a location in stage1 so it knows how many sectors of stage2.bin it should read in
@@ -24,9 +25,11 @@ $(BUILD_DIR)/$(DISK_IMAGE): $(IMAGE_COMPONENTS)
 	echo "drive c: file=\"$@\" partition=1" > $(MTOOLSRC)
 	mpartition -I c:
 	mpartition -c -t 256 -h 32 -s 32 c:
-	mformat c:
+	mformat $(FAT32) c:
 	mcopy $(BUILD_DIR)/kernel.bin "c:kernel.bin"
 	mcopy test.txt "c:test.txt"
+	mmd "c:mydir"
+	mcopy test2.txt "c:mydir/test.txt"
 	rm -f $(MTOOLSRC)
 
 floppy_image: $(BUILD_DIR)/$(FLOPPY_IMAGE)
@@ -46,7 +49,7 @@ $(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
 	mcopy -i $@ test.txt "::test.txt"
 	mcopy -i $@ test2.txt "::test2.txt"
 	mmd -i $@ "::mydir"
-	mcopy -i $@ test.txt "::mydir/test.txt"
+	mcopy -i $@ test2.txt "::mydir/test.txt"
 
 # $(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
 # 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\

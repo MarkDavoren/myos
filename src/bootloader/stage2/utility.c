@@ -1,6 +1,11 @@
 #include "utility.h"
 #include "stdio.h"
 
+Uint32 roundup(Uint32 number, Uint32 size)
+{
+    return (number + size - 1) / size;
+}
+
 Uint32 align(Uint32 number, Uint32 alignTo)
 {
     if (alignTo == 0)
@@ -10,8 +15,8 @@ Uint32 align(Uint32 number, Uint32 alignTo)
     return (rem > 0) ? (number + alignTo - rem) : number;
 }
 
-void end()
+void panic(char* msg)
 {
-    for (;;)
-        ;
+    printf("Bootloader panic: %s\n", msg);
+    for (;;) ;
 }

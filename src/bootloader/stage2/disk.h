@@ -8,6 +8,7 @@ typedef struct {
     Uint16  numCylinders;
     Uint16  numHeads;
     Uint16  numSectors;
+    Uint16  bytesPerSector;
     Uint32  offset;     // LBA offset to start of partition
 } Disk;
 

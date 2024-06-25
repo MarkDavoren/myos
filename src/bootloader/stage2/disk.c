@@ -3,6 +3,7 @@
 #include "bios.h"
 #include "mbr.h"
 #include "stdio.h"
+#include "utility.h"
 
 /*
  *  Initialize the Disk object for the specified drive number from BIOS details
@@ -19,8 +20,14 @@ Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part)
     disk->numCylinders = numCylinders;
     disk->numHeads = numHeads;
     disk->numSectors = numSectors;
+    disk->bytesPerSector = 0;   // This can't be set until we read in the MBR -- see fat.c
     disk->offset = part->lba;
 
+    printf("diskInit: Cylinders = %d, Heads = %d, Sectors = %d, offset = %d\n",
+        disk->numCylinders,
+        disk->numHeads,
+        disk->numSectors,
+        disk->offset);
     return true;
 }
 
@@ -64,11 +71,18 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
     return false;
 }
 
+/*
+ * diskRead takes a Uint8 count so anything > 255 won't work
+ * If count is > 255, split the reads into 128 byte chunks plus whatever the last chunk is
+ */
 Bool diskBigRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff)
 {
     Uint16 limit = count;
-    if (limit > 128) {
+    if (limit > 255) { // Max Uint8
         limit = 128;
+        if (disk->bytesPerSector == 0) {
+            panic("diskBigRead: bytes per sector == 0");
+        }
     }
 
     while (count > 0) {
@@ -76,7 +90,7 @@ Bool diskBigRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff)
             return false;
         }
         lba += limit;
-        buff += limit * 512;     // TODO: Hardcoded value
+        buff += limit * disk->bytesPerSector;
         count -= limit;
     }
 

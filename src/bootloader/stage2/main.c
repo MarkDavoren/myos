@@ -11,35 +11,43 @@
 typedef void (*KernelStart)();
 void jumpToKernel();
 
-void fatal(char* msg)
-{
-    printf("FATAL error %s\n:, msg");
-    for (;;) ;
-}
+Partition partitionTable[4];
 
-void __attribute__((cdecl)) start(Uint16 bootDrive, void* partitionTable)
+void __attribute__((cdecl)) start(Uint16 bootDrive, void* pt)
 {
     Bool ok;
     clearScreen();
     printf("Hello from Stage2. Boot drive = %x\n", bootDrive);
 
+    // Copy partition table into a safe, known location
+    Partition* pp = (Partition*)pt;
+    for (int ii = 0; ii < 4; ++ii) {
+        partitionTable[ii] = *(Partition*) pt;
+        pt += sizeof(Partition);
+    }
+
     printPartitionTable(partitionTable);
 
     ok = fatInitialize(bootDrive, partitionTable);  // TODO: Assumes using first partition
     if (!ok) {
-        fatal("fatInitialize returned false");
+        panic("fatInitialize returned false");
     }
     printf("fatInitialize: ok = %d\n", ok);
 
     Handle fin = fatOpen("/kernel.bin");
-    if (!ok) {
-        fatal("fatOpen returned false");
+    //Handle fin = fatOpen("/mydir/test.txt");
+    if (fin == BAD_HANDLE) {
+        panic("fatOpen returned error");
     }
     printf("fatOpen: fin = %u\n", fin);
 
+    // char buff[3000];
+    // Uint32 count = fatRead(fin, 3000, buff);
+    // printf("count = %d\n%s", count, buff);
+    // panic("Done reading /mydir/test.txt");
     Uint8* kp = KERNEL_LOAD_ADDR;
     Uint32 count;
-    while ((count = fatRead(fin, 512 /*SCRATCH_MEM_SIZE*/, SCRATCH_MEM_ADDRESS)) > 0) {  // TODO Undo debug hack
+    while ((count = fatRead(fin, SCRATCH_MEM_SIZE, SCRATCH_MEM_ADDRESS)) > 0) {
         printf("Copying %x bytes from %p to %p\n", count, SCRATCH_MEM_ADDRESS, kp);
         memcpy(kp, SCRATCH_MEM_ADDRESS, count);
         kp += count;
