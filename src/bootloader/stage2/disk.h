@@ -13,5 +13,5 @@ typedef struct {
 } Disk;
 
 Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part);
-Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* data);
-Bool diskBigRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff);
+//Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* data);
+Bool diskExtRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff);

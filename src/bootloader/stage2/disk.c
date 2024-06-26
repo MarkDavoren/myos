@@ -33,6 +33,8 @@ Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part)
 
 /*
  * Read count sectors from disk starting at lba into buffer
+ *
+ * Deprecated as it's lba and count have unacceptable limits
  */
 Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
 {
@@ -46,7 +48,7 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
     cylinder = (lba / disk->numSectors) / disk->numHeads;
     head = (lba / disk->numSectors) % disk->numHeads;
 
-    printf("Read: lba = %lu, cylinder = %u, head = %u, sector = %u, count = %d\n", lba, cylinder, head, sector, count);
+    printf("Read: lba = %u, cylinder = %u, head = %u, sector = %u, count = %u\n", lba, cylinder, head, sector, count);
 
     // Ralf Brown recommends trying up to three times to read with a reset between attempts
     // since the read may fail due the motor failing to spin up quickly enough
@@ -72,27 +74,43 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
 }
 
 /*
+ * Extended form of diskRead
+ *
  * diskRead takes a Uint8 count so anything > 255 won't work
- * If count is > 255, split the reads into 128 byte chunks plus whatever the last chunk is
+ * Furthermore the CHS address system has an 8MB limit
+ *
+ * diskExtRead takes a 16 bit count and directly uses the lba
+ * 
+ * It calls a BIOS function that requires BIOS extensions enabled
  */
-Bool diskBigRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff)
+Bool diskExtRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff)
 {
-    Uint16 limit = count;
-    if (limit > 255) { // Max Uint8
-        limit = 128;
-        if (disk->bytesPerSector == 0) {
-            panic("diskBigRead: bytes per sector == 0");
-        }
-    }
+    Uint8 status;
 
-    while (count > 0) {
-        if (!diskRead(disk, lba, limit, buff)) {
-            return false;
-        }
-        lba += limit;
-        buff += limit * disk->bytesPerSector;
-        count -= limit;
-    }
+    lba += disk->offset;
+
+    printf("ExtRead: lba = 0x%x, count = 0x%x\n", lba, count);
+    Bool ok = bios_ExtReadDisk(disk->id, lba, count, buff, &status);
+    //printf("OK = %d, Status = 0x%x\n", ok, status);
+
+    return ok;
+
+    // Uint16 limit = count;
+    // if (limit > 255) { // Max Uint8
+    //     limit = 128;
+    //     if (disk->bytesPerSector == 0) {
+    //         panic("diskExtRead: bytes per sector == 0");
+    //     }
+    // }
+
+    // while (count > 0) {
+    //     if (!diskRead(disk, lba, limit, buff)) {
+    //         return false;
+    //     }
+    //     lba += limit;
+    //     buff += limit * disk->bytesPerSector;
+    //     count -= limit;
+    // }
 
     return true;
 }

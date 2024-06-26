@@ -120,13 +120,111 @@ bios_resetDisk:
     ret
 
 ;
+; Bool diskExtRead(Uint8 id, Uint32 lba, Uint16 count, Uint8* buff, Uint8* status)
+;
+; Read from disk using extended read. This allows diretly specifying an LBA
+; and much larger count and lba
+;
+; Returns
+;   function returns success or failure
+;   *status will contain the status
+;   data will be at location pointed to by buffer
+;
+
+dap:
+    .size:      db 0x10
+                db 0
+    .count:     dw 0
+    .offset:    dw 0
+    .segment:   dw 0
+    .lba        dq 0
+
+global bios_ExtReadDisk
+bios_ExtReadDisk:
+    [bits 32]
+
+    ; Make new stack frame
+    push ebp
+    mov ebp, esp
+
+    x86_enterRealMode
+    [bits 16]
+
+    ; Save registers
+    push ebx
+    push edx
+    push es
+
+    extern biosHasExtension
+    mov eax, [biosHasExtension]
+    cmp eax, 0
+    je .noExtensions
+
+    ; [bp + 24] - *status           (4 bytes)
+    ; [bp + 20] - *buffer           (4 bytes)
+    ; [bp + 16] - count             (4 bytes)
+    ; [bp + 12] - lba               (4 bytes)
+    ; [bp +  8] - driveNumber       (4 bytes)
+    ; [bp +  4] - return address    (4 bytes)
+    ; [bp +  0] - old call frame    (4 bytes)
+
+    ;   AH    = 42h
+    ;   DL    = drive
+    ;   DS:SI = Address of Disk Access Packet
+
+    mov dl, [bp + 8]    ; drive
+
+    mov eax, [bp + 12]   ; lba
+    mov [dap.lba], eax
+
+    mov ax, [bp + 16]   ; count
+    mov [dap.count], ax
+
+    linearToSegmented [bp + 20], es, ebx, bx    ; buffer
+    mov [dap.offset], bx
+    mov [dap.segment], es
+
+    mov ah, 0x42         ; Disk read function
+    mov si, dap
+
+    stc
+    int 13h
+
+    ;   CF: Set on error, clear if no error
+    ;   AH = Return code
+    ;   AL = Number of actual sectors read. Always seems to be 0 or requested count
+
+    linearToSegmented [bp + 24], es, ebx, bx    ; Update status
+    mov [es:bx], ah
+
+    ; return success status
+    mov eax, 1
+    sbb eax, 0           ; Subtract with borrow. If CF is clear then EAX = 1 (true), otherwise EAX = 0 (false)
+
+.noExtensions
+    ; Restore registers
+    pop es
+    pop edx
+    pop ebx
+
+    push eax
+    x86_enterProtectedMode
+    [bits 32]
+    pop eax
+
+    ; Restore old stack frame
+    mov esp, ebp
+    pop ebp
+    ret
+
+;
 ; Bool _cdecl bios_readDisk(
 ;                 Uint8  driveNumber,
 ;                 Uint16 cylinder,
 ;                 Uint16 head,
 ;                 Uint16 sector,
 ;                 Uint8  count,
-;                 Uint8* buffer
+;                 Uint8* buffer,
 ;                 Uint8* status);
 ;
 ; Reads count sectors starting at cylinder/head/sector of the specified drive into buffer
@@ -143,7 +241,6 @@ bios_resetDisk:
 ;
 ; Returns
 ;   function returns success or failure
-;   *count will contain the number sectors read
 ;   *status will contain the status
 ;   data will be at location pointed to by buffer
 ;
@@ -198,7 +295,7 @@ bios_readDisk:
 
     mov al, [bp + 24]   ; count
 
-    linearToSegmented [bp + 28], es, ebx, bx
+    linearToSegmented [bp + 28], es, ebx, bx    ; buffer
 
     mov ah, 0x2         ; Disk read function
 
@@ -209,7 +306,7 @@ bios_readDisk:
     ;   AH = Return code
     ;   AL = Number of actual sectors read. Always seems to be 0 or requested count
 
-    linearToSegmented [bp + 32], es, ebx, bx
+    linearToSegmented [bp + 32], es, ebx, bx    ; Update status
     mov [es:bx], ah
 
     ; return success status

@@ -45,6 +45,8 @@ entry:
     mov sp, 0xFFF0      ; Stack will go down from the top of the load segment
     mov bp, sp
 
+    call checkBiosExtensions
+
     call enableA20      ; 2 - Enable A20 gate
 
     lgdt [GDTDesc]      ; 3 - Load GDT
@@ -94,6 +96,23 @@ entry:
     ; Halt when start() returns
     cli
     hlt
+
+checkBiosExtensions:
+    [bits 16]
+
+    mov ah, 0x41        ; BIOS function
+    mov dl, [bootDrive] ; Drive
+    mov bx, 0x55AA      ; Magic number
+    stc
+    int 13h             ; Clear CF => has extensions
+    mov eax, 1
+    sbb eax, 0          ; Subtract with borrow. If CF is clear then EAX = 1, otherwise EAX = 0
+    mov [biosHasExtension], eax
+
+    ret
+
+global biosHasExtension
+biosHasExtension: dq 0
 
 enableA20:
     [bits 16]

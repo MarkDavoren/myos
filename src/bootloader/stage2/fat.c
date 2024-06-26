@@ -197,7 +197,7 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
 
     // Read MBR into a temporary location and copy BPB from there to where we want it
     Uint8* tmp = (Uint8*) (FAT_MEM_ADDRESS + sizeof(FatData));
-    if (!diskRead(&fat->disk, 0, 1, tmp)) {
+    if (!diskExtRead(&fat->disk, 0, 1, tmp)) {
         printf("Failed to read MBR of disk %d\n", driveNumber);
         return false;
     }
@@ -361,12 +361,13 @@ bool readFATSectorForIndex(Uint32 index)
     if (sector == fat->sectorsPerFat - 1) {
         count = 1;
     }
-    if (!diskBigRead(
+    if (!diskExtRead(
             &fat->disk,
             fat->fatLBA + sector,
             count,
             (Uint8*) fat->FAT)) {
         printf("Failed to read sectors %d-%d FAT\n", sector, sector+count-1);
+        panic("Can't read FAT");
         return false;
     }
     //printFAT();
@@ -584,10 +585,10 @@ Bool readNextSectorFromFAT1216RootDir(File* dir)
 {
     Uint16 sector = dir->position / fat->bpb.bytesPerSector;
 
-    if (!diskRead(&fat->disk,
-                  fat->rootDirLBA + sector,
-                  1,
-                  dir->sector)) {
+    if (!diskExtRead(&fat->disk,
+                     fat->rootDirLBA + sector,
+                     1,
+                     dir->sector)) {
         printf("Failed to read Root directory, sector %d\n", sector);
         return false;
     }
@@ -620,10 +621,10 @@ Bool readNextSectorFromFile(File* file)
 
     Uint32 lba = clusterToLBA(nextCluster);
 
-    if (!diskRead(&fat->disk,
-                  lba + file->sectorInCluster,
-                  1,
-                  file->sector)) {
+    if (!diskExtRead(&fat->disk,
+                     lba + file->sectorInCluster,
+                     1,
+                     file->sector)) {
         printf("Failed to read file, lba %d\n", lba);
         return false;
     }
