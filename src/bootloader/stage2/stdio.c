@@ -130,7 +130,7 @@ void puts(const char* str)
 typedef enum Length {NORMAL, SHORT_SHORT, SHORT, LONG, LONG_LONG} Length;
 const char hex[16] = "0123456789ABCDEF";
 
-void printUnsigned(unsigned long long number, int radix)
+void printUnsigned(unsigned long long number, int radix, Bool alt)
 {
     int pos = 0;
     char buf[32];
@@ -142,12 +142,14 @@ void printUnsigned(unsigned long long number, int radix)
         buf[pos++] =  hex[rem];
     } while (number > 0);
 
-    // if (radix == 16) {
-    //     buf[pos++] = 'x';
-    //     buf[pos++] = '0';
-    // } else if (radix == 8 && buf[pos-1] != '0') {
-    //     buf[pos++] = '0';
-    // }
+    if (alt) {
+        if (radix == 16) {
+            buf[pos++] = 'x';
+            buf[pos++] = '0';
+        } else if (radix == 8 && buf[pos-1] != '0') {
+            buf[pos++] = '0';
+        }
+    }
 
     while (pos-- > 0) {
         putc(buf[pos]);
@@ -161,7 +163,7 @@ void printSigned(long long number, int radix)
         number = -number;
     }
 
-    printUnsigned(number, radix);
+    printUnsigned(number, radix, false);
 }
 
 void printf(const char* fmt, ...)
@@ -170,6 +172,7 @@ void printf(const char* fmt, ...)
     va_start(args, fmt);
 
     Length length = NORMAL;
+    Bool alt = false;
 
     while (*fmt) {
         switch (*fmt) {
@@ -224,15 +227,15 @@ void printf(const char* fmt, ...)
                         case SHORT_SHORT:
                         case SHORT:
                         case NORMAL:
-                            printUnsigned(va_arg(args, unsigned int), radix);
+                            printUnsigned(va_arg(args, unsigned int), radix, alt);
                             break;
 
                         case LONG:
-                            printUnsigned(va_arg(args, unsigned long), radix);
+                            printUnsigned(va_arg(args, unsigned long), radix, alt);
                             break;
                         
                         case LONG_LONG:
-                            printUnsigned(va_arg(args, unsigned long long), radix);
+                            printUnsigned(va_arg(args, unsigned long long), radix, alt);
                             break;
                         }
                     }
@@ -254,8 +257,13 @@ void printf(const char* fmt, ...)
                         length = LONG;
                     }
                     continue;
+                
+                case '#':
+                    alt = true;
+                    continue;
                 }
                 length = NORMAL;
+                alt = false;
                 break;
             }
             break;
