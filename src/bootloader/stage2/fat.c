@@ -205,7 +205,12 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
     fat->bpb = *(BiosParameterBlock*) tmp;
     fat->ebr.ebr32 = *(EBR32*) (tmp + sizeof(BiosParameterBlock));
 
-    fat->disk.bytesPerSector = fat->bpb.bytesPerSector;
+    if (fat->disk.bytesPerSector != fat->bpb.bytesPerSector) {
+        printf("Disk params and BPB disagree on bytes per sector: disk: %d, bpb: %d\n",
+               fat->disk.bytesPerSector,
+               fat->bpb.bytesPerSector);
+               panic("Fatal error!");
+    }
 
     fat->sectorsPerFat = (fat->bpb.sectorsPerFat16 == 0) ? fat->ebr.ebr32.sectorsPerFat32 : fat->bpb.sectorsPerFat16;
     fat->totalSectors = (fat->bpb.totalSectors16 == 0) ? fat->bpb.totalSectors32 : fat->bpb.totalSectors16;
