@@ -10,9 +10,13 @@
  */
 Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part)
 {
-    Uint16 numCylinders, numHeads, numSectors;
+    Uint16 numCylinders, numHeads, numSectors, bytesPerSectors;
 
     if (!bios_getDriveParams(driveNumber, &numCylinders, &numHeads, &numSectors)) {
+        return false;
+    }
+
+    if (!bios_getExtDriveParams(driveNumber, &bytesPerSectors)) {
         return false;
     }
 
@@ -20,14 +24,15 @@ Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part)
     disk->numCylinders = numCylinders;
     disk->numHeads = numHeads;
     disk->numSectors = numSectors;
-    disk->bytesPerSector = 0;   // This can't be set until we read in the MBR -- see fat.c
+    disk->bytesPerSector = bytesPerSectors;
     disk->offset = part->lba;
 
-    printf("diskInit: Cylinders = %d, Heads = %d, Sectors = %d, offset = %d\n",
+    printf("diskInit: Cylinders = %d, Heads = %d, Sectors = %d, offset = %d, bps = %d\n",
         disk->numCylinders,
         disk->numHeads,
         disk->numSectors,
-        disk->offset);
+        disk->offset,
+        disk->bytesPerSector);
     return true;
 }
 

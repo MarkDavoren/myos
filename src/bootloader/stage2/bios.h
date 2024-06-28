@@ -8,6 +8,8 @@ Bool __attribute__((cdecl)) bios_getDriveParams(
                                 Uint16* numHeads,
                                 Uint16* numSectors);
 
+Bool __attribute__((cdecl)) bios_resetDisk(Uint8 driveNumber);
+
 Bool __attribute__((cdecl)) bios_readDisk(
                                 Uint8  driveNumber,
                                 Uint16 cylinder,
@@ -17,6 +19,10 @@ Bool __attribute__((cdecl)) bios_readDisk(
                                 Uint8* buffer,
                                 Uint8* status);
                 
+Bool __attribute__((cdecl)) bios_getExtDriveParams(
+                                Uint8   driveNumber,
+                                Uint16* bytesPerSectors);
+
 Bool __attribute__((cdecl)) bios_ExtReadDisk(
                                 Uint8 id,
                                 Uint32 lba,
@@ -24,4 +30,3 @@ Bool __attribute__((cdecl)) bios_ExtReadDisk(
                                 Uint8* buff,
                                 Uint8* status);
 
-Bool __attribute__((cdecl)) bios_resetDisk(Uint8 driveNumber);
