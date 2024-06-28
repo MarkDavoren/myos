@@ -82,3 +82,16 @@ unsigned strlen(const char* str)
 
     return len;
 }
+
+const char* getComponent(const char* path, char* component, char delimiter, int limit)
+{
+    --limit; // Leave room for null
+
+    for (int ii = 0; *path != '\0' && *path != delimiter && ii < limit; ii++) {
+        *component++ = *path++;
+    }
+    *component = '\0';
+
+    return path;
+}
+

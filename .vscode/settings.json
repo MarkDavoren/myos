@@ -3,7 +3,8 @@
     "files.associations": {
         "stdtypes.h": "c",
         "binary.h": "c",
-        "armv7m-1.C": "cpp"
+        "armv7m-1.C": "cpp",
+        "*.inc": "c"
     },
     "search.exclude": {
         "**/toolchain": true

@@ -33,13 +33,20 @@ void __attribute__((cdecl)) start(Uint16 bootDrive, void* pt)
 
     ok = extInitialize(bootDrive, partitionTable);
 
-    Handle fin = extOpen("/kernel.bin");
+    Handle fin = extOpen("/test.txt");
     if (fin == BAD_HANDLE) {
         panic("extOpen returned error");
     }
     printf("extOpen: fin = %u\n", fin);
 
-
+    printf("File contents:\n");
+    char buff[1024 + 1];
+    Uint32 count;
+    while ((count = extRead(fin, 1024, buff))) {
+        buff[count] = '\0';
+        printf("%s", buff);
+    }
+    panic("Stop in main");
 }
 
 void jumpToKernel()

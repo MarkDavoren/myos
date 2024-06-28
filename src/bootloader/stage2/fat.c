@@ -159,7 +159,6 @@ File* openFile(DirectoryEntry* entry);
 Uint32 readFile(File* file, Uint32 count, Uint8* buff);
 void closeFile(File* file);
 Handle getFreeHandle();
-const char* getComponent(const char* path, char* component, int limit);
 Bool findFileInDirectory(const char* name, File* dir, DirectoryEntry* foundEntry);
 Bool readDirEntry(File* dir, DirectoryEntry* entry);
 Bool readNextSector(File* dir);
@@ -250,6 +249,7 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
 Handle fatOpen(const char* path)
 {
     if (path == NULL || path[0] == '\0') {
+        printf("Failed to open file with empty path\n");
         return BAD_HANDLE;
     }
 
@@ -259,13 +259,14 @@ Handle fatOpen(const char* path)
     }
 
     const char* originalPath = path;
+    
     File* file = openRootDir();
 
     path++; // Skip root '/'
 
     while (*path != '\0') {
         char component[13]; // 8 + '.' + 3 + null
-        path = getComponent(path, component, sizeof(component));
+        path = getComponent(path, component, '/', sizeof(component));
         if (*path != '\0' && *path != '/') {
             printf("Failed to open file '%s': Component '%s' is too long\n", originalPath, component);
             closeFile(file);
@@ -292,6 +293,7 @@ Handle fatOpen(const char* path)
         }
 
         path++;     // skip '/'
+
         if (!file->isDir) {
             printf("Failed to open file '%s': Component '%s' is not a directory\n", originalPath, component);
             closeFile(file);
@@ -508,18 +510,6 @@ Handle getFreeHandle()
     }
 
     return handle;
-}
-
-const char* getComponent(const char* path, char* component, int limit)
-{
-    --limit; // Leave room for null
-
-    for (int ii = 0; *path != '\0' && *path != '/' && ii < limit; ii++) {
-        *component++ = *path++;
-    }
-    *component = '\0';
-
-    return path;
 }
 
 /*

@@ -10,3 +10,4 @@ typedef Int8 Handle;
 
 Bool extInitialize(Uint8 driveNumber, Partition* part);
 Handle extOpen(const char*);
+Uint32 extRead(Handle fin, Uint32 count, Uint8* buff);
