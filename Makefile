@@ -2,19 +2,43 @@ include build_scripts/config.mk
 
 .PHONY: all disk_image floppy_image clean always
 
-all: always disk_image # floppy_image
+all: always ext2_disk_image #disk_image # floppy_image
 
 include build_scripts/toolchain.mk
 
-DISK_IMAGE := myos_disk.img
+DISK_IMAGE := myos_disk
 FLOPPY_IMAGE := myos_floppy.img
 IMAGE_COMPONENTS := $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel.bin
 
-disk_image: $(BUILD_DIR)/$(DISK_IMAGE)
+# EXT2 disk (partitioned)
+
+ext2_disk_image: $(BUILD_DIR)/$(DISK_IMAGE).ext2
+
+export MTOOLSRC:=$(shell mktemp)
+export EXT2TEMP:=$(shell mktemp)
+$(BUILD_DIR)/$(DISK_IMAGE).ext2: $(IMAGE_COMPONENTS)
+	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
+		xxd -r - $(BUILD_DIR)/stage1.bin
+	dd if=/dev/zero of=$@ count=64 conv=sparse
+	dd if=build/stage1.bin of=$@ conv=notrunc,sparse
+	dd if=build/stage2.bin of=$@ seek=1 conv=notrunc,sparse
+	dd if=/dev/zero of=$(EXT2TEMP) count=40960 conv=sparse
+	mke2fs -t ext2 -L "MYOSEXT2" -d root $(EXT2TEMP)
+	echo write build/kernel.bin /kernel.bin | debugfs -w $(EXT2TEMP)
+	dd if=$(EXT2TEMP) of=$@ seek=64 conv=sparse,notrunc
+	echo "drive c: file=\"$@\" partition=1" > $(MTOOLSRC)
+	mpartition -I -c -b 64 -l 40960 c:
+	rm -f $(MTOOLSRC) $(EXT2TEMP)
+
+
+
+# FAT disk (partitioned)
+
+disk_image: $(BUILD_DIR)/$(DISK_IMAGE).fat
 
 export MTOOLSRC:=$(shell mktemp)
 FAT32 = -F # Forces FAT32 even though there aren't enough clusters. fdisk won't recognize it. Unset this for FAT16
-$(BUILD_DIR)/$(DISK_IMAGE): $(IMAGE_COMPONENTS)
+$(BUILD_DIR)/$(DISK_IMAGE).fat: $(IMAGE_COMPONENTS)
 	# Use the partitioned strategy for hard disks
 	# Here we are setting a location in stage1 so it knows how many sectors of stage2.bin it should read in
 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
@@ -32,6 +56,7 @@ $(BUILD_DIR)/$(DISK_IMAGE): $(IMAGE_COMPONENTS)
 	mcopy test2.txt "c:mydir/test.txt"
 	rm -f $(MTOOLSRC)
 
+# FAT floppy (non-partitioned)
 floppy_image: $(BUILD_DIR)/$(FLOPPY_IMAGE)
 
 $(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
@@ -98,7 +123,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 run:
-	qemu-system-i386 -drive file=$(BUILD_DIR)/$(DISK_IMAGE),index=0,media=disk,format=raw
+	qemu-system-i386 -drive file=$(BUILD_DIR)/$(DISK_IMAGE).ext2,index=0,media=disk,format=raw
 
 debug:
 	bochs -f bochs_disk_config

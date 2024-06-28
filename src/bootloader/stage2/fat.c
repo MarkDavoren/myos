@@ -233,7 +233,7 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
     fat->rootDirLBA = fat->fatLBA + fat->bpb.FatCount * fat->sectorsPerFat;
 
     Uint32 rootDirSizeInBytes = fat->bpb.rootDirCount * sizeof(DirectoryEntry);
-    Uint32 rootDirSizeInSectors = roundup(rootDirSizeInBytes, fat->bpb.bytesPerSector);
+    Uint32 rootDirSizeInSectors = divAndRoundUp(rootDirSizeInBytes, fat->bpb.bytesPerSector);
 
     fat->dataLBA = fat->rootDirLBA + rootDirSizeInSectors;
 
@@ -328,7 +328,7 @@ FatType getFatType(FatData* fat)
      * Note: If the filesystem is FAT12 or 16 then this algorithm will not access ebr
      */
 
-    Uint32 rootDirSectors = roundup((fat->bpb.rootDirCount * sizeof(DirectoryEntry)), fat->bpb.bytesPerSector);
+    Uint32 rootDirSectors = divAndRoundUp((fat->bpb.rootDirCount * sizeof(DirectoryEntry)), fat->bpb.bytesPerSector);
     Uint32 dataSectors = fat->totalSectors - (fat->bpb.reservedSectors + (fat->bpb.FatCount * fat->sectorsPerFat) + rootDirSectors);
 
     Uint32 numClusters = dataSectors / fat->bpb.sectorsPerCluster;

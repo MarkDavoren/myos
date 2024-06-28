@@ -1,7 +1,7 @@
 #include "utility.h"
 #include "stdio.h"
 
-Uint32 roundup(Uint32 number, Uint32 size)
+Uint32 divAndRoundUp(Uint32 number, Uint32 size)
 {
     return (number + size - 1) / size;
 }
@@ -20,3 +20,6 @@ void panic(char* msg)
     printf("Bootloader panic: %s\n", msg);
     for (;;) ;
 }
+
+void breakpoint()
+{}

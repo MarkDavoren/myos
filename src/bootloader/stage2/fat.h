@@ -4,8 +4,10 @@
 #include "disk.h"
 #include "mbr.h"
 
+#ifndef BAD_HANDLE
 typedef Int8 Handle;
 #define BAD_HANDLE -1
+#endif
 
 Bool fatInitialize(Uint8 driveNumber, Partition* part);
 Handle fatOpen(const char* path);
