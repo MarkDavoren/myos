@@ -15,7 +15,7 @@ void testContentsLargeFileExt();
 void testSubdirectoryFileExt();
 void loadAndJumpToKernelExt();
 void printFileExt(Handle fin);
-Bool validateFileExt(Handle fin);
+int  validateFileExt(Handle fin);
 
 Partition partitionTable[4];
 
@@ -54,7 +54,7 @@ void testContentsLargeFileExt()
     }
     printf("vOpen: fin = %u\n", fin);
 
-    if (validateFileExt(fin)) {
+    if (validateFileExt(fin) == 0x200000) {
         printf("SUCCESS!!\n");
     }
 
@@ -137,7 +137,7 @@ void printFileExt(Handle fin)
  *      perl -e 'print pack "L*", 0..0x1fffff' > root/8MB
  * which is the 32 bit numbers from 0 to 0x1fffff in binary format
  */
-Bool validateFileExt(Handle fin)
+int validateFileExt(Handle fin)
 {
     const int BUFF_SIZE = 91; // Use a very oddly sized buffer to cause deliberately poor alignment with blocks
     Uint32 buff[BUFF_SIZE];
@@ -152,7 +152,7 @@ Bool validateFileExt(Handle fin)
             if (buff[ii] != index + ii) {
                 printf("File mismatch: index = %d (%#x), ii = %d (%#x), buff = %x\n", index, index, ii, ii, buff[ii]);
                 breakpoint();
-                return false;
+                return -1;
             }
         }
         index += countInts;
@@ -161,5 +161,5 @@ Bool validateFileExt(Handle fin)
         }
     }
     printf("Validated %d (%#x) integers\n", index, index);
-    return true;
+    return index;
 }

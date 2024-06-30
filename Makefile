@@ -1,6 +1,6 @@
 include build_scripts/config.mk
 
-.PHONY: all ext2_disk_image fat_disk_image floppy_image clean always
+.PHONY: all ext_disk_image fat_disk_image floppy_image clean always
 
 all: always fat_disk_image  # floppy_image
 
@@ -10,13 +10,13 @@ DISK_IMAGE := myos_disk
 FLOPPY_IMAGE := myos_floppy.img
 IMAGE_COMPONENTS := $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel.bin
 
-# EXT2 disk (partitioned)
+# EXT disk (partitioned)
 
-ext2_disk_image: $(BUILD_DIR)/$(DISK_IMAGE).ext2
+ext_disk_image: $(BUILD_DIR)/$(DISK_IMAGE).ext
 
 export MTOOLSRC:=$(shell mktemp)
-export EXT2TEMP:=$(shell mktemp)
-$(BUILD_DIR)/$(DISK_IMAGE).ext2: $(IMAGE_COMPONENTS)
+export EXTTEMP:=$(shell mktemp)
+$(BUILD_DIR)/$(DISK_IMAGE).ext: $(IMAGE_COMPONENTS)
 	# Set stage2 size into stage1
 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
 		xxd -r - $(BUILD_DIR)/stage1.bin
@@ -25,15 +25,15 @@ $(BUILD_DIR)/$(DISK_IMAGE).ext2: $(IMAGE_COMPONENTS)
 	dd if=build/stage1.bin of=$@ conv=notrunc,sparse
 	dd if=build/stage2.bin of=$@ seek=1 conv=notrunc,sparse
 	# Create ext2 fs
-	dd if=/dev/zero of=$(EXT2TEMP) count=40960 conv=sparse
-	mke2fs -t ext2 -L "MYOSEXT2" -d $(ROOT_DIR) $(EXT2TEMP)
-	echo write build/kernel.bin /kernel.bin | debugfs -w $(EXT2TEMP)
+	dd if=/dev/zero of=$(EXTTEMP) count=40960 conv=sparse
+	mke2fs -t ext2 -L "MYOSEXT2" -d $(ROOT_DIR) $(EXTTEMP)
+	echo write build/kernel.bin /kernel.bin | debugfs -w $(EXTTEMP)
 	# Concat it onto boot area and create a partition for it
-	dd if=$(EXT2TEMP) of=$@ seek=64 conv=sparse,notrunc
+	dd if=$(EXTTEMP) of=$@ seek=64 conv=sparse,notrunc
 	echo "drive c: file=\"$@\" partition=1" > $(MTOOLSRC)
 	mpartition -I -c -b 64 -l 40960 c:
 	# Cleanup
-	rm -f $(MTOOLSRC) $(EXT2TEMP)
+	rm -f $(MTOOLSRC) $(EXTTEMP)
 
 
 
@@ -134,8 +134,11 @@ clean:
 	rm -f $(BUILD_DIR)/$(DISK_IMAGE)
 	rm -rf $(BUILD_DIR)
 
-run:
+run-fat:
 	qemu-system-i386 -drive file=$(BUILD_DIR)/$(DISK_IMAGE).fat,index=0,media=disk,format=raw
+
+run-ext:
+	qemu-system-i386 -drive file=$(BUILD_DIR)/$(DISK_IMAGE).ext,index=0,media=disk,format=raw
 
 debug:
 	bochs -f bochs_disk_config

@@ -242,7 +242,7 @@ Bool extInitialize(Uint8 driveNumber, Partition* part)
     }
 
     if (sb->ext2signature != SUPERBLOCK_SIGNATURE) {
-        printf("extInitialize: Bad superblock signature %#x\n", sb->ext2signature);
+        panic("Not an EXT partition");
         return false;
     }
 

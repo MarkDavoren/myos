@@ -138,6 +138,7 @@ typedef struct {
 typedef struct {
     Disk        disk;               // Disk geometry details
     FatType     fatType;            // One of FAT12, FAT16, or FAT32
+    Uint32      endClusterMarker;   // 0xFF8, 0xFFF8, or 0x0FFFFFF8 
     Uint32      rootCluster;        // If FAT32
     Uint16      bytesPerSector;     // From the BPB
     Uint8       sectorsPerCluster;  // From the BPB
@@ -222,9 +223,24 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
 
     EBR32* ebr = (EBR32*) (((Uint8*)bpb) + sizeof(BiosParameterBlock));
     printEBR32(ebr);
- 
+
+    if (bpb->bytesPerSector == 0
+     || bpb->sectorsPerCluster == 0
+     || bpb->FatCount == 0) {
+        panic("Invalid FAT partition");
+    }
+
     fat.fatType = getFatType(&fat, bpb);
     printf("Found FAT Type = %d\n", fat.fatType);
+    switch (fat.fatType)
+    {
+        case FAT12: fat.endClusterMarker = 0xFF8; break;
+        case FAT16: fat.endClusterMarker = 0xFFF8; break;
+        case FAT32: fat.endClusterMarker = 0x0FFFFFF8; break;
+        default:
+            panic("Unknown FAT type for end cluster sequence marker");
+            return false;
+    }
 
     fat.bytesPerSector = bpb->bytesPerSector;
     fat.sectorsPerCluster = bpb->sectorsPerCluster;
@@ -364,6 +380,8 @@ FatType getFatType(FatData* fat, BiosParameterBlock* bpb)
     } else {
         return FAT32;
     }
+
+    return -1;
 }
 
 bool readFATSectorForIndex(Uint32 index)
@@ -621,7 +639,7 @@ Bool readNextSectorFromFile(File* file)
     }
     //printf("Current cluster = %#x, sic = %#x, next = %#x\n", file->cluster, file->sectorInCluster, nextCluster);
 
-    if (nextCluster >= 0xFF8) {
+    if (nextCluster >= fat.endClusterMarker) {
         printf("reached end of cluster sequence\n");
         return false;
     }
@@ -859,4 +877,9 @@ void printFile(File* file)
         file->position,
         file->size,
         file->buffer);
+}
+
+void printFileClusters(File* file)
+{
+
 }
