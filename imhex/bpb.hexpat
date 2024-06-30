@@ -16,7 +16,7 @@ struct BPB {
     u32 hiddenSectors;
     u32 largeSectorCount;
 };
-BPB bpb @ 0x00;
+
 
 struct EBR {
     // extended boot record
@@ -27,7 +27,7 @@ struct EBR {
     u8 VolumeLabel[11];    // 11 bytes, padded with spaces
     u8 SystemId[8];
 };
-EBR ebr @ 0x24;
+
 
 struct FAT32_EBR {
     u32 SectorsPerFat;
@@ -45,24 +45,4 @@ struct FAT32_EBR {
     u32 VolumeId;          // serial number, value doesn't matter
     u8 VolumeLabel[11];    // 11 bytes, padded with spaces
     u8 SystemId[8];
-};
-FAT32_EBR ebr32 @ 0x24;
-
-fn nextFAT12Cluster(u16 curr) {
-    u8 FAT[100] @ 0x4200;
-    
-    u16 index = (curr * 3) / 2;
-    u16 val = FAT[index] | (FAT[index+1] << 8);
-    
-    if ((curr % 2) == 0) {
-        return val & 0xFFF;
-    } else {
-        return val >> 4;
-    }
-};
-
-fn main() {
-    for (u8 ii=0, ii < 32, ii = ii + 1) {
-        std::print("{:02x} {:03x}", ii, nextFAT12Cluster(ii));
-    }
 };

@@ -1,14 +1,13 @@
-
 #include "stdtypes.h"
 #include "stdio.h"
 #include "x86.h"
 #include "disk.h"
-#include "ext.h"
 #include "utility.h"
 #include "memdefs.h"
 #include "string.h"
 #include "mbr.h"
 #include "alloc.h"
+#include "vfs.h"
 
 typedef void (*KernelStart)();
 
@@ -37,7 +36,9 @@ void __attribute__((cdecl)) start(Uint16 bootDrive, void* pt)
     }
     printPartitionTable(partitionTable);
 
-    ok = extInitialize(bootDrive, partitionTable);
+    vSetType(FAT);
+
+    ok = vInitialize(bootDrive, partitionTable);
 
     testContentsLargeFileExt();
     //testSubdirectoryFileExt();
@@ -47,17 +48,17 @@ void __attribute__((cdecl)) start(Uint16 bootDrive, void* pt)
 
 void testContentsLargeFileExt()
 {
-    Handle fin = extOpen("/8MB");
+    Handle fin = vOpen("/8MB");
     if (fin == BAD_HANDLE) {
-        panic("extOpen returned error");
+        panic("vOpen returned error");
     }
-    printf("extOpen: fin = %u\n", fin);
+    printf("vOpen: fin = %u\n", fin);
 
     if (validateFileExt(fin)) {
         printf("SUCCESS!!\n");
     }
 
-    extClose(fin);
+    vClose(fin);
 }
 
 void testSubdirectoryFileExt()
@@ -65,13 +66,13 @@ void testSubdirectoryFileExt()
     const int BUFF_SIZE = 1024;
     char buff[BUFF_SIZE + 1];
 
-    Handle fin = extOpen("/mydir/test2.txt");
+    Handle fin = vOpen("/mydir/test2.txt");
     if (fin == BAD_HANDLE) {
-        panic("extOpen returned error");
+        panic("vOpen returned error");
     }
-    printf("extOpen: fin = %u\n", fin);
+    printf("vOpen: fin = %u\n", fin);
 
-    if (extRead(fin, 10, buff) != 10) {
+    if (vRead(fin, 10, buff) != 10) {
         printf("Couldn't read 10 characters :(\n");
     }
 
@@ -81,25 +82,28 @@ void testSubdirectoryFileExt()
         printf("SUCCESS!!\n");
     }
 
-    extClose(fin);   
+    vClose(fin);   
 }
 
 void loadAndJumpToKernelExt()
 {
-    Handle fin = extOpen("/kernel.bin");
+    const int BUFF_SIZE = 1024;
+    char buff[BUFF_SIZE];
+   
+    Handle fin = vOpen("/kernel.bin");
     if (fin == BAD_HANDLE) {
         panic("Failed to open kernel");
     }
 
     Uint8* kp = KERNEL_LOAD_ADDR;
     Uint32 count;
-    while ((count = extRead(fin, SCRATCH_MEM_SIZE, SCRATCH_MEM_ADDRESS)) > 0) {
-        printf("Copying %x bytes from %p to %p\n", count, SCRATCH_MEM_ADDRESS, kp);
-        memcpy(kp, SCRATCH_MEM_ADDRESS, count);
+    while ((count = vRead(fin, BUFF_SIZE, buff)) > 0) {
+        printf("Copying %x bytes from %p to %p\n", count, buff, kp);
+        memcpy(kp, buff, count);
         kp += count;
     }
 
-    extClose(fin);
+    vClose(fin);
 
     Uint8* pp = KERNEL_LOAD_ADDR;
     for (int ii = 0; ii < 16; ++ii) {
@@ -122,7 +126,7 @@ void printFileExt(Handle fin)
 
     printf("File contents:\n");
     Uint32 count;
-    while ((count = extRead(fin, BUFF_SIZE, buff))) {
+    while ((count = vRead(fin, BUFF_SIZE, buff))) {
         buff[count] = '\0';
         printf("%s", buff);
     }
@@ -135,19 +139,26 @@ void printFileExt(Handle fin)
  */
 Bool validateFileExt(Handle fin)
 {
-    const int BUFF_SIZE = 191; // Use a very oddly sized buffer to cause deliberately poor alignment with blocks
+    const int BUFF_SIZE = 91; // Use a very oddly sized buffer to cause deliberately poor alignment with blocks
     Uint32 buff[BUFF_SIZE];
     Uint32 index = 0;
     Uint32 countBytes;
-    while ((countBytes = extRead(fin, BUFF_SIZE * sizeof(Uint32), buff)) > 0) {
+
+    printf("buff = %p\n", buff);
+    int timer = 0;
+    while ((countBytes = vRead(fin, BUFF_SIZE * sizeof(Uint32), buff)) > 0) {
         Uint32 countInts = countBytes / sizeof(Uint32);
         for (int ii = 0; ii < countInts; ++ii) {
             if (buff[ii] != index + ii) {
                 printf("File mismatch: index = %d (%#x), ii = %d (%#x), buff = %x\n", index, index, ii, ii, buff[ii]);
+                breakpoint();
                 return false;
             }
         }
         index += countInts;
+        if ((++timer % 1000) == 0) {
+            printf(".");
+        }
     }
     printf("Validated %d (%#x) integers\n", index, index);
     return true;

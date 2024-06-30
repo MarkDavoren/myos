@@ -8,6 +8,19 @@
 #include "alloc.h"
 #include "string.h"
 
+#define MAX_HANDLES                 10
+#define MAX_FILENAME_LENGTH         255
+#define NUM_DIRECT_BLOCKS_IN_INODE  12
+#define SUPERBLOCK_DISK_ADDRESS     1024    // The superblock is always at 1024 bytes into the partition
+#define SUPERBLOCK_LENGTH           1024    // and is always 1024 bytes long
+#define SUPERBLOCK_SIGNATURE        0xef53
+#define BGD_TABLE_SECTOR            2
+#define ROOT_DIR_INODE              2
+
+/*
+ * EXT2 Filesystem data structures
+ */
+
 typedef struct {
     Uint32      numInodes;
     Uint32      numBlocks;
@@ -64,7 +77,6 @@ typedef struct {
     Uint16      numDirectories;
 } __attribute__((packed)) BlockGroupDescriptor;
 
-#define NUM_DIRECT_BLOCKS_IN_INODE 12
 typedef struct {
     Uint16      typeAndPermissions;
     Uint16      userID;
@@ -113,8 +125,6 @@ enum InodePermissions {
     IN_PERM_SUID    = 0x800
 };
 
-#define MAX_FILENAME_LENGTH 255
-
 typedef struct {
     Uint32      inodeNum;
     Uint16      size;
@@ -134,17 +144,30 @@ enum DirectoryEntryType {
     DE_TYPE_SYMLINK = 7
 };
 
+/*
+ * MYOS Ext Filesystem data structures
+ */
+
+/*
+ * There is one File per possible handle
+ * They are stored in ext.files[handle]
+ * Each File contains info needed for open and read functions
+ *   including a pointer to a buffer on the heap which holds one block of data
+ */
+
 typedef struct {
     Uint8       id;                 // Handle
     Bool        isOpened;           // If false then available for use
     Inode       inode;
     Uint32      position;           // Current position in bytes
-    Uint32      currentBlockInFile;       // Number of block loaded into buffer
+    Uint32      currentBlockInFile; // Number of block loaded into buffer
     void*       buffer;             // Point to current block buffer
 } File;
 
-#define MAX_HANDLES 10
-
+/*
+ * The ExtData structure all info required to read files from an EXT filesystem
+ * including an array for files (open or available)
+ */
 typedef struct {
     Disk        disk;
     Uint32      blockSize;  // in bytes
@@ -158,6 +181,15 @@ typedef struct {
     File        files[MAX_HANDLES];
 } ExtData;
 
+/*
+ * Master ExtData object
+ */
+
+ExtData ext;
+
+/*
+ * Forward declarations
+ */
 
 Bool ext_readBlock(Disk* disk, Uint32 block, void* buffer);
 File* ext_openFile(Uint32 iNum);
@@ -170,44 +202,40 @@ Bool ext_getCorrectBlock(File* file);
 void ext_printDirectoryEntry(DirectoryEntry* entry);
 void ext_printFile(File* file);
 
-
-
-ExtData ext;
-
-#define SUPERBLOCK_DISK_ADDRESS 1024    // The superblock is always at 1024 bytes into the partition
-#define SUPERBLOCK_LENGTH       1024    // and is always 1024 bytes long
-#define SUPERBLOCK_SIGNATURE    0xef53
-#define BGD_TABLE_SECTOR        2
-#define ROOT_DIR_INODE          2
-
 // ###############################################
 //      Public functions
 // ###############################################
 
 /*
+ * Initialize the filesystem including
+ *  the disk
+ *  the ExtData structure
+ *  storage for file buffers
+ *
  * This code will panic if there is more than one block group because support for it is not implemented
  */
 Bool extInitialize(Uint8 driveNumber, Partition* part)
 {
-    // Initialize disk  -- Need to set disk.bytesPerSector later
+    // Initialize disk
     if (!diskInit(&ext.disk, driveNumber, part)) {
         printf("extInitialize: Failed to initialize disk %d\n", driveNumber);
         return false;
     }
 
-    printf("Drive = %#x, Cylinders = %d, Heads = %d, Sectors = %d, offset = %d (%#x)\n",
+    printf("Drive = %#x, Cylinders = %d, Heads = %d, Sectors = %d, bps = %d, offset = %d (%#x)\n",
         ext.disk.id,
         ext.disk.numCylinders,
         ext.disk.numHeads,
         ext.disk.numSectors,
+        ext.disk.bytesPerSector,
         ext.disk.offset,
         ext.disk.offset);
     
+    // Get what we need from the superblock
     Superblock* sb = alloc(SUPERBLOCK_LENGTH);
-
     if (!diskExtRead(&ext.disk,
                     SUPERBLOCK_DISK_ADDRESS / ext.disk.bytesPerSector,
-                    SUPERBLOCK_LENGTH / ext.disk.bytesPerSector,
+                    divAndRoundUp(SUPERBLOCK_LENGTH, ext.disk.bytesPerSector),
                     (Uint8*) sb)) {
         printf("extInitialize: Failed to read superblock of disk %d\n", driveNumber);
         return false;
@@ -246,6 +274,7 @@ Bool extInitialize(Uint8 driveNumber, Partition* part)
         return false;
     }
 
+    // Get what we need from the Block Group Descriptor (BGD)
     BlockGroupDescriptor* bgd = alloc(ext.blockSize);
 
     // The BGD is in the next block after the SB.
@@ -256,17 +285,12 @@ Bool extInitialize(Uint8 driveNumber, Partition* part)
         return false;
     }
 
-    ext.inodeTableBlock = bgd->inodeTableBlock;
+    ext.inodeTableBlock = bgd->inodeTableBlock;     // Assuming single block group
     printf("inode table block = %#x\n", ext.inodeTableBlock);
 
     free(bgd); bgd = NULL;
 
     // Set up File table
-
-    // Pre-allocate the buffers contiguously as they will never be freed
-    // and would likely lead to fragmentation
-    for (int ii = 0; ii < MAX_HANDLES; ++ii) {
-    }
     for (int ii = 0; ii < MAX_HANDLES; ++ii) {
         ext.files[ii].id = ii;
         ext.files[ii].isOpened = false;

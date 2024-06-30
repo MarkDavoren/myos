@@ -36,14 +36,14 @@
 #define HEAP_ADDRESS        ((void*) 0x20000)
 #define HEAP_SIZE           0x40000
 
-#define DISK_BUFFER         ((void*) 0x20000)
-#define DISK_BUFFER_SIZE    0x10000
+// #define DISK_BUFFER         ((void*) 0x20000)
+// #define DISK_BUFFER_SIZE    0x10000
 
-#define FAT_MEM_ADDRESS     ((void*) 0x20000)
-#define FAT_MEM_SIZE        0x20000
+// #define FAT_MEM_ADDRESS     ((void*) 0x20000)
+// #define FAT_MEM_SIZE        0x20000
 
-#define SCRATCH_MEM_ADDRESS ((void*) 0x50000)
-#define SCRATCH_MEM_SIZE    0x10000
+// #define SCRATCH_MEM_ADDRESS ((void*) 0x50000)
+// #define SCRATCH_MEM_SIZE    0x10000
 
 #define KERNEL_LOAD_ADDR    ((void*) 0x100000)
 

@@ -1,8 +1,8 @@
 include build_scripts/config.mk
 
-.PHONY: all disk_image floppy_image clean always
+.PHONY: all ext2_disk_image fat_disk_image floppy_image clean always
 
-all: always ext2_disk_image #disk_image # floppy_image
+all: always fat_disk_image  # floppy_image
 
 include build_scripts/toolchain.mk
 
@@ -17,43 +17,50 @@ ext2_disk_image: $(BUILD_DIR)/$(DISK_IMAGE).ext2
 export MTOOLSRC:=$(shell mktemp)
 export EXT2TEMP:=$(shell mktemp)
 $(BUILD_DIR)/$(DISK_IMAGE).ext2: $(IMAGE_COMPONENTS)
+	# Set stage2 size into stage1
 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
 		xxd -r - $(BUILD_DIR)/stage1.bin
+	# Create boot area
 	dd if=/dev/zero of=$@ count=64 conv=sparse
 	dd if=build/stage1.bin of=$@ conv=notrunc,sparse
 	dd if=build/stage2.bin of=$@ seek=1 conv=notrunc,sparse
+	# Create ext2 fs
 	dd if=/dev/zero of=$(EXT2TEMP) count=40960 conv=sparse
-	mke2fs -t ext2 -L "MYOSEXT2" -d root $(EXT2TEMP)
+	mke2fs -t ext2 -L "MYOSEXT2" -d $(ROOT_DIR) $(EXT2TEMP)
 	echo write build/kernel.bin /kernel.bin | debugfs -w $(EXT2TEMP)
+	# Concat it onto boot area and create a partition for it
 	dd if=$(EXT2TEMP) of=$@ seek=64 conv=sparse,notrunc
 	echo "drive c: file=\"$@\" partition=1" > $(MTOOLSRC)
 	mpartition -I -c -b 64 -l 40960 c:
+	# Cleanup
 	rm -f $(MTOOLSRC) $(EXT2TEMP)
 
 
 
 # FAT disk (partitioned)
 
-disk_image: $(BUILD_DIR)/$(DISK_IMAGE).fat
+fat_disk_image: $(BUILD_DIR)/$(DISK_IMAGE).fat
 
 export MTOOLSRC:=$(shell mktemp)
 FAT32 = -F # Forces FAT32 even though there aren't enough clusters. fdisk won't recognize it. Unset this for FAT16
 $(BUILD_DIR)/$(DISK_IMAGE).fat: $(IMAGE_COMPONENTS)
-	# Use the partitioned strategy for hard disks
-	# Here we are setting a location in stage1 so it knows how many sectors of stage2.bin it should read in
+	# Set stage2 size into stage1
 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
 		xxd -r - $(BUILD_DIR)/stage1.bin
-	dd if=/dev/zero of=$@ bs=512 count=263000 > /dev/null 2>&1
+	dd if=/dev/zero of=$@ bs=512 count=41024 > /dev/null 2>&1				# 41024 = 40960 + 64
 	dd if=$(BUILD_DIR)/stage1.bin of=$@ conv=notrunc > /dev/null 2>&1
 	dd if=$(BUILD_DIR)/stage2.bin of=$@ seek=1 conv=notrunc > /dev/null 2>&1
+	# Create a FAT partition
 	echo "drive c: file=\"$@\" partition=1" > $(MTOOLSRC)
-	mpartition -I c:
-	mpartition -c -t 256 -h 32 -s 32 c:
+	mpartition -I -c -b 64 -l 40960 c:
 	mformat $(FAT32) c:
+	# Copy files over -- TODO: investigate recursive copy
 	mcopy $(BUILD_DIR)/kernel.bin "c:kernel.bin"
-	mcopy test.txt "c:test.txt"
+	mcopy $(ROOT_DIR)/test.txt "c:test.txt"
+	mcopy $(ROOT_DIR)/8MB "c:8MB"
 	mmd "c:mydir"
-	mcopy test2.txt "c:mydir/test.txt"
+	mcopy $(ROOT_DIR)/mydir/test2.txt "c:mydir/test.txt"
+	# Cleanup
 	rm -f $(MTOOLSRC)
 
 # FAT floppy (non-partitioned)
@@ -109,7 +116,7 @@ $(BUILD_DIR)/kernel.bin: always
 # Test files
 
 $(ROOT_DIR)/8MB:
-	perl -e 'print pack "L*", 0..0x1fffff' > root/8MB	
+	perl -e 'print pack "L*", 0..0x1fffff' > $(ROOT_DIR)/8MB	
 
 #
 # Always
@@ -128,7 +135,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 run:
-	qemu-system-i386 -drive file=$(BUILD_DIR)/$(DISK_IMAGE).ext2,index=0,media=disk,format=raw
+	qemu-system-i386 -drive file=$(BUILD_DIR)/$(DISK_IMAGE).fat,index=0,media=disk,format=raw
 
 debug:
 	bochs -f bochs_disk_config

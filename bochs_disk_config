@@ -1,7 +1,7 @@
 megs: 128
 romimage: file=/usr/share/bochs/BIOS-bochs-legacy, address=0xffff0000
 vgaromimage: file=/usr/share/bochs/VGABIOS-lgpl-latest
-ata0-master: type=disk, path=build/myos_disk.ext2, cylinders=30, heads=4, spt=32
+ata0-master: type=disk, path=build/myos_disk.fat, cylinders=30, heads=4, spt=32
 boot: disk
 mouse: enabled=0
 display_library: x, options="gui_debug"
