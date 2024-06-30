@@ -339,7 +339,7 @@ bios_readDisk:
 ;
 ; Bool bios_getExtDriveParams(Uint16* bytesPerSector)
 ;
-; Gets the extended geometry of the specified drive
+; Gets the bytes per sector of the specified drive
 ;
 ; Returns true/false on success/failure
 ;
@@ -427,9 +427,8 @@ bios_getExtDriveParams:
 ;
 ; Notes:
 ;   Read from disk using extended read
-;   This allows directly specifying an LBA as well as a much larger count and lba
+;   This allows directly specifying an LBA as well as a much larger count (Uint16) and lba (Uint64)
 ;
-
 
 dap:
     .size:      db 0x10
@@ -437,7 +436,8 @@ dap:
     .count:     dw 0
     .offset:    dw 0
     .segment:   dw 0
-    .lba        dq 0
+    .lba_low:    dd 0
+    .lba_high:   dd 0
 
 global bios_ExtReadDisk
 bios_ExtReadDisk:
@@ -460,10 +460,10 @@ bios_ExtReadDisk:
     cmp eax, 0
     je .noExtensions
 
-    ; [bp + 24] - *status           (4 bytes)
-    ; [bp + 20] - *buffer           (4 bytes)
-    ; [bp + 16] - count             (4 bytes)
-    ; [bp + 12] - lba               (4 bytes)
+    ; [bp + 28] - *status           (4 bytes)
+    ; [bp + 24] - *buffer           (4 bytes)
+    ; [bp + 20] - count             (4 bytes)
+    ; [bp + 12] - lba               (8 bytes)
     ; [bp +  8] - driveNumber       (4 bytes)
     ; [bp +  4] - return address    (4 bytes)
     ; [bp +  0] - old call frame    (4 bytes)
@@ -472,15 +472,17 @@ bios_ExtReadDisk:
     ;   DL    = drive
     ;   DS:SI = Address of Disk Access Packet
 
-    mov dl, [bp + 8]    ; drive
+    mov dl, [bp + 8]                            ; drive
 
-    mov eax, [bp + 12]   ; lba
-    mov [dap.lba], eax
+    mov eax, [bp + 12]                          ; lba      - 64 bit copy
+    mov [dap.lba_low], eax
+    mov eax, [bp + 16]
+    mov [dap.lba_high], eax
 
-    mov ax, [bp + 16]   ; count
+    mov ax, [bp + 20]                           ; count
     mov [dap.count], ax
 
-    linearToSegmented [bp + 20], es, ebx, bx    ; buffer
+    linearToSegmented [bp + 24], es, ebx, bx    ; buffer
     mov [dap.offset], bx
     mov [dap.segment], es
 
@@ -494,7 +496,7 @@ bios_ExtReadDisk:
     ;   AH = Return code
     ;   AL = Number of actual sectors read. Always seems to be 0 or requested count
 
-    linearToSegmented [bp + 24], es, ebx, bx    ; Update status
+    linearToSegmented [bp + 28], es, ebx, bx    ; Update status
     mov [es:bx], ah
 
     ; return success status

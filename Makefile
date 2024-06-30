@@ -106,6 +106,11 @@ $(BUILD_DIR)/stage2.bin: always
 $(BUILD_DIR)/kernel.bin: always
 	@$(MAKE) -C src/kernel BUILD_DIR=$(abspath $(BUILD_DIR))
 
+# Test files
+
+$(ROOT_DIR)/8MB:
+	perl -e 'print pack "L*", 0..0x1fffff' > root/8MB	
+
 #
 # Always
 #

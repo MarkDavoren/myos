@@ -2,3 +2,4 @@ build/
 toolchain/
 *.err
 *.ini
+root/8MB

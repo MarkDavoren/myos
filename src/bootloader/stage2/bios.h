@@ -25,7 +25,7 @@ Bool __attribute__((cdecl)) bios_getExtDriveParams(
 
 Bool __attribute__((cdecl)) bios_ExtReadDisk(
                                 Uint8 id,
-                                Uint32 lba,
+                                Uint64 lba,
                                 Uint16 count,
                                 Uint8* buff,
                                 Uint8* status);

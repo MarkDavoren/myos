@@ -4,7 +4,17 @@
         "stdtypes.h": "c",
         "binary.h": "c",
         "armv7m-1.C": "cpp",
-        "*.inc": "c"
+        "*.inc": "c",
+        "rope": "c",
+        "chrono": "c",
+        "ranges": "c",
+        "variant": "c",
+        "hash_map": "c",
+        "hash_set": "c",
+        "algorithm": "c",
+        "bitset": "c",
+        "format": "c",
+        "dynamic_bitset": "c"
     },
     "search.exclude": {
         "**/toolchain": true

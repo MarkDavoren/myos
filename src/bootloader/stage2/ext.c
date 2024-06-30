@@ -64,6 +64,7 @@ typedef struct {
     Uint16      numDirectories;
 } __attribute__((packed)) BlockGroupDescriptor;
 
+#define NUM_DIRECT_BLOCKS_IN_INODE 12
 typedef struct {
     Uint16      typeAndPermissions;
     Uint16      userID;
@@ -77,18 +78,7 @@ typedef struct {
     Uint32      numDiskSectors;
     Uint32      flags;
     Uint32      oss1;
-    Uint32      directBlock0;
-    Uint32      directBlock1;
-    Uint32      directBlock2;
-    Uint32      directBlock3;
-    Uint32      directBlock4;
-    Uint32      directBlock5;
-    Uint32      directBlock6;
-    Uint32      directBlock7;
-    Uint32      directBlock8;
-    Uint32      directBlock9;
-    Uint32      directBlock10;
-    Uint32      directBlock11;
+    Uint32      directBlocks[NUM_DIRECT_BLOCKS_IN_INODE];
     Uint32      singlyIndirectBlock;
     Uint32      doublyIndirectBlock;
     Uint32      triplyIndirectBlock;
@@ -189,6 +179,10 @@ ExtData ext;
 #define SUPERBLOCK_SIGNATURE    0xef53
 #define BGD_TABLE_SECTOR        2
 #define ROOT_DIR_INODE          2
+
+// ###############################################
+//      Public functions
+// ###############################################
 
 /*
  * This code will panic if there is more than one block group because support for it is not implemented
@@ -348,29 +342,53 @@ Handle extOpen(const char* path)
     return file->id;
 }
 
-Uint32 extRead(Handle fin, Uint32 count, Uint8* buff)
+Uint32 extRead(Handle fin, Uint32 count, void* buff)
 {
     File* file = &ext.files[fin];
 
-    if (file->position == file->inode.sizeLow) {
-        printf("EOF\n");
-        return 0;
-    }
+    //printf("extRead: fin = %d, pos = %d (%#x), count = %d\n", fin, file->position, file->position, count);
 
-    ext_getCorrectBlock(file);
-
-    // TODO: Implement if request spans a block boundary
     Uint32 remaining = file->inode.sizeLow - file->position;
     if (remaining < count) {
         count = remaining;
     }
-    
-    memcpy(buff, file->buffer + (file->position % ext.blockSize), count);
 
-    file->position += count;
+    if (count == 0) {
+        printf("EOF\n");
+        return 0;
+    }
 
-    return count;
+    Uint32 bytesRead = 0;
+
+    while (bytesRead < count) {
+        ext_getCorrectBlock(file);
+
+        Uint32 bytesToRead = count - bytesRead;
+        Uint32 positionInBlock = file->position % ext.blockSize;
+        if (bytesToRead > ext.blockSize - positionInBlock) {
+            bytesToRead = ext.blockSize - positionInBlock;
+        }
+        
+        //printf("Copying %d bytes from %x to %x\n", bytesToRead, file->buffer + positionInBlock, buff);
+        memcpy(buff + bytesRead, file->buffer + positionInBlock, bytesToRead);
+
+        bytesRead += bytesToRead;
+        file->position += bytesToRead;
+    }
+
+    return bytesRead;
 }
+
+void extClose(Handle handle)
+{
+    ext_closeFile(&ext.files[handle]);
+}
+
+// ###############################################
+//      Private functions
+// ###############################################
+
+// These functions should be static, but not having them in the map makes debugging hard
 
 Bool ext_readBlock(Disk* disk, Uint32 block, void* buffer)
 {
@@ -426,7 +444,7 @@ File* ext_openFile(Uint32 iNum)
     }
     printf("inodeBlock = %#x\n", inodeBlock);
     Inode* inode = (Inode*) (inodeBlock + iOffset);
-    printf("size = %d, block0 = %#x\n", inode->sizeLow, inode->directBlock0);
+    printf("size = %d, block0 = %#x\n", inode->sizeLow, inode->directBlocks[0]);
 
     file->isOpened = true;
     //file->inode = *inode;     <- doesn't work!?!?
@@ -484,19 +502,61 @@ Bool ext_readNextDirectoryEntry(File* file, DirectoryEntry* entry)
 
 Bool ext_getCorrectBlock(File* file)
 {
-    Uint32 requiredBlockInFile = file->position / ext.blockSize;
+    const Uint32 BLOCK_NUMS_PER_BLOCK = ext.blockSize / sizeof(Uint32);
+    const Uint32 SI_BASE_BLOCK = 12;
+    const Uint32 DI_BASE_BLOCK = SI_BASE_BLOCK + BLOCK_NUMS_PER_BLOCK;
+    const Uint32 TI_BASE_BLOCK = DI_BASE_BLOCK + BLOCK_NUMS_PER_BLOCK * BLOCK_NUMS_PER_BLOCK;
 
-    printf("Required block = %#x, current block = %#x\n", requiredBlockInFile, file->currentBlockInFile);
+    Uint32 requiredBlockInFile = file->position / ext.blockSize;
 
     if (file->currentBlockInFile == requiredBlockInFile) {
         return true;
     }
 
+    //printf("Required block = %#x, current block = %#x\n", requiredBlockInFile, file->currentBlockInFile);
     Uint32 blockNum;
-    if (requiredBlockInFile < 12) {
-        blockNum = (&file->inode.directBlock0)[requiredBlockInFile];
+    if (requiredBlockInFile < SI_BASE_BLOCK) {
+        // The required block pointer is in the direct pointers
+
+        blockNum = file->inode.directBlocks[requiredBlockInFile];
+
+    } else if (requiredBlockInFile < DI_BASE_BLOCK) {
+        // SI_BASE_BLOCK < required block pointer < DI_BASE_BLOCK
+        // The required block pointer is in the singly indirect pointers
+
+        if (!ext_readBlock(&ext.disk, file->inode.singlyIndirectBlock, file->buffer)) {
+            printf("ext_openFile: Failed to read inode singly indirect block %#x\n", blockNum);
+            return false;
+        }
+
+        Uint32* siBlock = ((Uint32*) file->buffer);
+        Uint32 siBlockIndex = requiredBlockInFile - SI_BASE_BLOCK;
+        blockNum = siBlock[siBlockIndex];
+        //printf("SIP %#x at bn = %#x\n", requiredBlockInFile, blockNum);
+
+    } else if (blockNum < TI_BASE_BLOCK) {
+        // DI_BASE_BLOCK < required block pointer < TI_BASE_BLOCK
+        // The required block pointer is in the doubly indirect pointers
+
+        if (!ext_readBlock(&ext.disk, file->inode.doublyIndirectBlock, file->buffer)) {
+            printf("ext_openFile: Failed to read inode doubly indirect block, block = %#x\n", blockNum);
+            return false;
+        }
+
+        Uint32* diBlock = ((Uint32*) file->buffer);
+        Uint32 diBlockIndex = (requiredBlockInFile - DI_BASE_BLOCK) / BLOCK_NUMS_PER_BLOCK;
+        Uint32 siBlockIndex = diBlock[diBlockIndex];
+
+        if (!ext_readBlock(&ext.disk, siBlockIndex, file->buffer)) {
+            printf("ext_openFile: Failed to read inode doubly indirect block, block = %#x\n", blockNum);
+            return false;
+        }
+
+        Uint32* siBlock = ((Uint32*) file->buffer);
+        siBlockIndex = (requiredBlockInFile - DI_BASE_BLOCK) % BLOCK_NUMS_PER_BLOCK;
+        blockNum = siBlock[siBlockIndex];
     } else {
-        panic("Indirect block fetches not implemented");
+        panic("Triply indirect inode pointers not implemented yet");
     }
 
     if (!ext_readBlock(&ext.disk, blockNum, file->buffer)) {
@@ -514,6 +574,10 @@ void ext_closeFile(File* file)
     file->isOpened = false;
 }
 
+// ###############################################
+//      Debugging functions
+// ###############################################
+
 void ext_printDirectoryEntry(DirectoryEntry* entry)
 {
     char buff[MAX_FILENAME_LENGTH + 1];
@@ -526,12 +590,13 @@ void ext_printDirectoryEntry(DirectoryEntry* entry)
 
 void ext_printFile(File* file)
 {
-    printf("File: id=%d, isOpened=%d, pos=%d, cbif=%d, size=%d, tap=%#x, db0=%#x\n",
+    printf("File: id=%d, isOpened=%d, pos=%d, cbif=%d, size=%d, tap=%#x, db0=%#x, sidb=%#x\n",
         file->id,
         file->isOpened,
         file->position,
         file->currentBlockInFile,
         file->inode.sizeLow,
         file->inode.typeAndPermissions,
-        file->inode.directBlock0);
+        file->inode.directBlocks[0],
+        file->inode.singlyIndirectBlock);
 }

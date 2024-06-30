@@ -94,7 +94,7 @@ Bool diskExtRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff)
 
     lba += disk->offset;
 
-    printf("ExtRead: lba = 0x%x, count = 0x%x\n", lba, count);
+    //printf("diskExtRead: lba = 0x%x, count = 0x%x sectors\n", lba, count);
     Bool ok = bios_ExtReadDisk(disk->id, lba, count, buff, &status);
     //printf("OK = %d, Status = 0x%x\n", ok, status);
 
