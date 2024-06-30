@@ -35,8 +35,6 @@ $(BUILD_DIR)/$(DISK_IMAGE).ext: $(IMAGE_COMPONENTS)
 	# Cleanup
 	rm -f $(MTOOLSRC) $(EXTTEMP)
 
-
-
 # FAT disk (partitioned)
 
 fat_disk_image: $(BUILD_DIR)/$(DISK_IMAGE).fat
@@ -59,16 +57,18 @@ $(BUILD_DIR)/$(DISK_IMAGE).fat: $(IMAGE_COMPONENTS)
 	mcopy $(ROOT_DIR)/test.txt "c:test.txt"
 	mcopy $(ROOT_DIR)/8MB "c:8MB"
 	mmd "c:mydir"
-	mcopy $(ROOT_DIR)/mydir/test2.txt "c:mydir/test.txt"
+	mcopy $(ROOT_DIR)/mydir/test2.txt "c:mydir/test2.txt"
 	# Cleanup
 	rm -f $(MTOOLSRC)
 
 # FAT floppy (non-partitioned)
+
 floppy_image: $(BUILD_DIR)/$(FLOPPY_IMAGE)
 
 $(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
 	# We use the non-partitioned strategy for floppies
 	# The -R option sets the reserved sectors field of the BPB. Size of stage2.bin +1 for the MBR
+	rm -f $@
 	mkfs.fat -C -s 1 -g 2/80 -R $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 + 1 )) $@ 1440
 	# Here we are setting a location in stage1 so it knows how many sectors of stage2.bin it should read in
 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
@@ -78,10 +78,9 @@ $(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
 	# Copy stage to the disk starting at sector 1 (after the MBR)
 	dd if=$(BUILD_DIR)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc > /dev/null 2>&1
 	mcopy -i $@ $(BUILD_DIR)/kernel.bin "::kernel.bin"
-	mcopy -i $@ test.txt "::test.txt"
-	mcopy -i $@ test2.txt "::test2.txt"
+	mcopy -i $@ root/test.txt "::test.txt"
 	mmd -i $@ "::mydir"
-	mcopy -i $@ test2.txt "::mydir/test.txt"
+	mcopy -i $@ root/mydir/test2.txt "::mydir/test.txt"
 
 # $(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
 # 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\

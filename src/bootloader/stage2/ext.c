@@ -158,9 +158,9 @@ enum DirectoryEntryType {
 typedef struct {
     Uint8       id;                 // Handle
     Bool        isOpened;           // If false then available for use
-    Inode       inode;
+    Inode       inode;              // Copy of inode
     Uint32      position;           // Current position in bytes
-    Uint32      currentBlockInFile; // Number of block loaded into buffer
+    Uint32      blockInBuffer;      // Number of block currently loaded into buffer
     void*       buffer;             // Point to current block buffer
 } File;
 
@@ -393,7 +393,7 @@ Uint32 extRead(Handle fin, Uint32 count, void* buff)
             bytesToRead = ext.blockSize - positionInBlock;
         }
         
-        //printf("Copying %d bytes from %x to %x\n", bytesToRead, file->buffer + positionInBlock, buff);
+        //printf("Copying %d bytes from %x to %x\n", bytesToRead, file->buffer + positionInBlock, buff + bytesRead);
         memcpy(buff + bytesRead, file->buffer + positionInBlock, bytesToRead);
 
         bytesRead += bytesToRead;
@@ -473,7 +473,7 @@ File* ext_openFile(Uint32 iNum)
     file->isOpened = true;
     //file->inode = *inode;     <- doesn't work!?!?
     memcpy(&file->inode, inode, sizeof(Inode));
-    file->currentBlockInFile = UINT32_MAX; // Will cause a block load upon first read
+    file->blockInBuffer = UINT32_MAX; // This will force a block load on first read attempt
     file->position = 0;
 
     ext_printFile(file);
@@ -500,7 +500,7 @@ Handle ext_getFreeHandle()
 
 Bool ext_readNextDirectoryEntry(File* file, DirectoryEntry* entry)
 {
-    printf("readNDE: pos = %#x, cbif = %#x, size = %d\n", file->position, file->currentBlockInFile, file->inode.sizeLow);
+    printf("readNDE: pos = %#x, cbif = %#x, size = %d\n", file->position, file->blockInBuffer, file->inode.sizeLow);
 
     if (file->position >= file->inode.sizeLow) {
         printf("EOF\n");
@@ -533,11 +533,11 @@ Bool ext_getCorrectBlock(File* file)
 
     Uint32 requiredBlockInFile = file->position / ext.blockSize;
 
-    if (file->currentBlockInFile == requiredBlockInFile) {
+    if (file->blockInBuffer == requiredBlockInFile) {
         return true;
     }
 
-    //printf("Required block = %#x, current block = %#x\n", requiredBlockInFile, file->currentBlockInFile);
+    //printf("Required block = %#x, current block = %#x\n", requiredBlockInFile, file->blockInBuffer);
     Uint32 blockNum;
     if (requiredBlockInFile < SI_BASE_BLOCK) {
         // The required block pointer is in the direct pointers
@@ -588,7 +588,7 @@ Bool ext_getCorrectBlock(File* file)
         return false;
     }
 
-    file->currentBlockInFile = requiredBlockInFile;
+    file->blockInBuffer = requiredBlockInFile;
 
     return true;
 }
@@ -618,7 +618,7 @@ void ext_printFile(File* file)
         file->id,
         file->isOpened,
         file->position,
-        file->currentBlockInFile,
+        file->blockInBuffer,
         file->inode.sizeLow,
         file->inode.typeAndPermissions,
         file->inode.directBlocks[0],

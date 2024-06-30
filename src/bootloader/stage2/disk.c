@@ -13,10 +13,12 @@ Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part)
     Uint16 numCylinders, numHeads, numSectors, bytesPerSectors;
 
     if (!bios_getDriveParams(driveNumber, &numCylinders, &numHeads, &numSectors)) {
+        printf("bios_getDriveParams failed\n");
         return false;
     }
 
     if (!bios_getExtDriveParams(driveNumber, &bytesPerSectors)) {
+        printf("bios_getExtDriveParams failed\n");
         return false;
     }
 

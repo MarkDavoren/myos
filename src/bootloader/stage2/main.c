@@ -41,7 +41,7 @@ void __attribute__((cdecl)) start(Uint16 bootDrive, void* pt)
     ok = vInitialize(bootDrive, partitionTable);
 
     testContentsLargeFileExt();
-    //testSubdirectoryFileExt();
+    testSubdirectoryFileExt();
 
     panic("Stop in main");
 }
@@ -139,7 +139,7 @@ void printFileExt(Handle fin)
  */
 int validateFileExt(Handle fin)
 {
-    const int BUFF_SIZE = 91; // Use a very oddly sized buffer to cause deliberately poor alignment with blocks
+    const int BUFF_SIZE = 97; // Use a very oddly sized buffer to cause deliberately poor alignment with blocks
     Uint32 buff[BUFF_SIZE];
     Uint32 index = 0;
     Uint32 countBytes;
