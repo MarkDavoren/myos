@@ -36,12 +36,12 @@ void __attribute__((cdecl)) start(Uint16 bootDrive, void* pt)
     }
     printPartitionTable(partitionTable);
 
-    vSetType(FAT);
+    vSetType(EXT);
 
     ok = vInitialize(bootDrive, partitionTable);
-
+ 
     testContentsLargeFileExt();
-    testSubdirectoryFileExt();
+    //testSubdirectoryFileExt();
 
     panic("Stop in main");
 }
@@ -52,9 +52,9 @@ void testContentsLargeFileExt()
     if (fin == BAD_HANDLE) {
         panic("vOpen returned error");
     }
-    printf("vOpen: fin = %u\n", fin);
+    //printf("vOpen: fin = %u\n", fin);
 
-    if (validateFileExt(fin) == 0x200000) {
+    if (validateFileExt(fin) == 0x200000) { // 1MB: 0x40000, 8MB: 0x200000
         printf("SUCCESS!!\n");
     }
 
@@ -144,7 +144,6 @@ int validateFileExt(Handle fin)
     Uint32 index = 0;
     Uint32 countBytes;
 
-    printf("buff = %p\n", buff);
     int timer = 0;
     while ((countBytes = vRead(fin, BUFF_SIZE * sizeof(Uint32), buff)) > 0) {
         Uint32 countInts = countBytes / sizeof(Uint32);

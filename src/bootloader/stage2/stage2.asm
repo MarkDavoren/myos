@@ -45,7 +45,7 @@ entry:
     mov sp, 0xFFF0      ; Stack will go down from the top of the load segment
     mov bp, sp
 
-    call checkBiosExtensions
+    call checkBiosDiskExtensions
 
     call enableA20      ; 2 - Enable A20 gate
 
@@ -97,7 +97,7 @@ entry:
     cli
     hlt
 
-checkBiosExtensions:
+checkBiosDiskExtensions:
     [bits 16]
 
     mov ah, 0x41        ; BIOS function
@@ -107,12 +107,12 @@ checkBiosExtensions:
     int 13h             ; Clear CF => has extensions
     mov eax, 1
     sbb eax, 0          ; Subtract with borrow. If CF is clear then EAX = 1, otherwise EAX = 0
-    mov [biosHasExtension], eax
+    mov [biosHasDiskExtension], eax
 
     ret
 
-global biosHasExtension
-biosHasExtension: dq 0
+global biosHasDiskExtension
+biosHasDiskExtension: dq 0
 
 enableA20:
     [bits 16]

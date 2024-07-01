@@ -337,6 +337,52 @@ bios_readDisk:
 ;################################
 
 ;
+; Bool bios_hasDiskExtensions(Uint8 driveNumber);
+;
+; Returns true if the BIOS disk extensions are enabled for the specified drive
+;
+
+global bios_hasDiskExtensions
+bios_hasDiskExtensions:
+    [bits 32]
+
+    ; Make new stack frame
+    push ebp
+    mov ebp, esp
+
+    x86_enterRealMode
+    [bits 16]
+
+    ; Save registers
+    push bx
+    push dx
+
+    ; [bp +  8]  - driveNumber       (4 bytes)
+    ; [bp +  4]  - return address    (4 bytes)
+    ; [bp +  0]  - old call frame    (4 bytes)
+
+    mov ah, 0x41        ; BIOS function
+    mov bx, 0x55AA      ; Magic number
+    mov dl, [bp + 8]    ; DL = drive number
+    stc
+    int 13h             ; Clear CF => has extensions
+    mov eax, 1
+    sbb eax, 0          ; Subtract with borrow. If CF is clear then EAX = 1, otherwise EAX = 0
+
+    pop dx
+    pop bx
+
+    push eax
+    x86_enterProtectedMode
+    [bits 32]
+    pop eax
+
+    ; Restore old stack frame
+    mov esp, ebp
+    pop ebp
+    ret
+
+;
 ; Bool bios_getExtDriveParams(Uint16* bytesPerSector)
 ;
 ; Gets the bytes per sector of the specified drive
@@ -455,8 +501,8 @@ bios_ExtReadDisk:
     push edx
     push es
 
-    extern biosHasExtension
-    mov eax, [biosHasExtension]
+    extern biosHasDiskExtension
+    mov eax, [biosHasDiskExtension]
     cmp eax, 0
     je .noExtensions
 

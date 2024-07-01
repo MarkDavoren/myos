@@ -18,7 +18,10 @@ Bool __attribute__((cdecl)) bios_readDisk(
                                 Uint8  count,
                                 Uint8* buffer,
                                 Uint8* status);
-                
+
+Bool __attribute__((cdecl)) bios_hasDiskExtensions(
+                                Uint8   driveNumber);
+
 Bool __attribute__((cdecl)) bios_getExtDriveParams(
                                 Uint8   driveNumber,
                                 Uint16* bytesPerSectors);

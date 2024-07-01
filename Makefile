@@ -16,7 +16,7 @@ ext_disk_image: $(BUILD_DIR)/$(DISK_IMAGE).ext
 
 export MTOOLSRC:=$(shell mktemp)
 export EXTTEMP:=$(shell mktemp)
-$(BUILD_DIR)/$(DISK_IMAGE).ext: $(IMAGE_COMPONENTS)
+$(BUILD_DIR)/$(DISK_IMAGE).ext: $(IMAGE_COMPONENTS) $(ROOT_DIR)/8MB
 	# Set stage2 size into stage1
 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
 		xxd -r - $(BUILD_DIR)/stage1.bin
@@ -41,7 +41,7 @@ fat_disk_image: $(BUILD_DIR)/$(DISK_IMAGE).fat
 
 export MTOOLSRC:=$(shell mktemp)
 FAT32 = -F # Forces FAT32 even though there aren't enough clusters. fdisk won't recognize it. Unset this for FAT16
-$(BUILD_DIR)/$(DISK_IMAGE).fat: $(IMAGE_COMPONENTS)
+$(BUILD_DIR)/$(DISK_IMAGE).fat: $(IMAGE_COMPONENTS) $(ROOT_DIR)/8MB
 	# Set stage2 size into stage1
 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
 		xxd -r - $(BUILD_DIR)/stage1.bin
@@ -65,7 +65,7 @@ $(BUILD_DIR)/$(DISK_IMAGE).fat: $(IMAGE_COMPONENTS)
 
 floppy_image: $(BUILD_DIR)/$(FLOPPY_IMAGE)
 
-$(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
+$(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS) $(ROOT_DIR)/1MB
 	# We use the non-partitioned strategy for floppies
 	# The -R option sets the reserved sectors field of the BPB. Size of stage2.bin +1 for the MBR
 	rm -f $@
@@ -79,8 +79,9 @@ $(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
 	dd if=$(BUILD_DIR)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc > /dev/null 2>&1
 	mcopy -i $@ $(BUILD_DIR)/kernel.bin "::kernel.bin"
 	mcopy -i $@ root/test.txt "::test.txt"
+	mcopy -i $@ root/1MB "::1MB"
 	mmd -i $@ "::mydir"
-	mcopy -i $@ root/mydir/test2.txt "::mydir/test.txt"
+	mcopy -i $@ root/mydir/test2.txt "::mydir/test2.txt"
 
 # $(BUILD_DIR)/$(FLOPPY_IMAGE): $(IMAGE_COMPONENTS)
 # 	echo $(shell printf '1b7: %x' $$(( ($(shell stat -c %s $(BUILD_DIR)/stage2.bin) + 511 ) / 512 )) ) |\
@@ -116,6 +117,9 @@ $(BUILD_DIR)/kernel.bin: always
 
 $(ROOT_DIR)/8MB:
 	perl -e 'print pack "L*", 0..0x1fffff' > $(ROOT_DIR)/8MB	
+
+$(ROOT_DIR)/1MB:
+	perl -e 'print pack "L*", 0..0x3ffff' > $(ROOT_DIR)/1MB	
 
 #
 # Always

@@ -11,6 +11,8 @@
 
 #define MAX_HANDLES 3
 #define FAT_BUFFER_SIZE 2
+#define MBR_DISK_ADDRESS 0
+#define MBR_SIZE_SECTORS 1
 
 /*
  * FAT Filesystem data structures
@@ -202,6 +204,7 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
         printf("Failed to initialize disk %d\n", driveNumber);
         return false;
     }
+
     printf("Drive %#x, Cylinders = %d, Heads = %d, Sectors = %d, bps = %d, offset = %d (%#x)\n",
         fat.disk.id,
         fat.disk.numCylinders,
@@ -210,9 +213,10 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
         fat.disk.bytesPerSector,
         fat.disk.offset,
         fat.disk.offset);
+
     // Grab what we need from the boot sector
     BiosParameterBlock* bpb = alloc(fat.disk.bytesPerSector);
-    if (!diskExtRead(&fat.disk, 0, 1, (Uint8*) bpb)) {
+    if (!diskExtRead(&fat.disk, MBR_DISK_ADDRESS, MBR_SIZE_SECTORS, (Uint8*) bpb)) {
         printf("Failed to read boot sector of disk %d\n", driveNumber);
         panic("Failed to load FAT boot sector");
         return false;
@@ -224,11 +228,26 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
     EBR32* ebr = (EBR32*) (((Uint8*)bpb) + sizeof(BiosParameterBlock));
     fat_printEBR32(ebr);
 
+    // Validation checks
     if (bpb->bytesPerSector == 0
      || bpb->sectorsPerCluster == 0
      || bpb->FatCount == 0) {
         panic("Invalid FAT partition");
     }
+
+    if (bpb->bytesPerSector != fat.disk.bytesPerSector) {
+        printf("Disk params and BPB disagree on bytes per sector: disk: %d, bpb: %d\n",
+               fat.disk.bytesPerSector,
+               fat.bytesPerSector);
+               panic("Fatal error!");
+    }
+
+    // Initialize fat data struct
+    fat.bytesPerSector = bpb->bytesPerSector;
+    fat.sectorsPerCluster = bpb->sectorsPerCluster;
+    fat.sectorsPerFat = (bpb->sectorsPerFat16 == 0) ? ebr->sectorsPerFat32 : bpb->sectorsPerFat16;
+    fat.totalSectors = (bpb->totalSectors16 == 0) ? bpb->totalSectors32 : bpb->totalSectors16;
+    fat.rootCluster = ebr->rootCluster;
 
     fat.fatType = fat_getFatType(&fat, bpb);
     printf("Found FAT Type = %d\n", fat.fatType);
@@ -242,12 +261,6 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
             return false;
     }
 
-    fat.bytesPerSector = bpb->bytesPerSector;
-    fat.sectorsPerCluster = bpb->sectorsPerCluster;
-    fat.sectorsPerFat = (bpb->sectorsPerFat16 == 0) ? ebr->sectorsPerFat32 : bpb->sectorsPerFat16;
-    fat.totalSectors = (bpb->totalSectors16 == 0) ? bpb->totalSectors32 : bpb->totalSectors16;
-    fat.rootCluster = ebr->rootCluster;
-
     // Set up convenience LBAs
     fat.fatLBA = bpb->reservedSectors;
     fat.rootDirLBA = fat.fatLBA + bpb->FatCount * fat.sectorsPerFat;
@@ -258,13 +271,6 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
     printf("fatLBA = %#x, rootDirLBA = %#x, dataLBA = %#x\n", fat.fatLBA, fat.rootDirLBA, fat.dataLBA);
 
     free(bpb); bpb = NULL;
-
-    if (fat.disk.bytesPerSector != fat.bytesPerSector) {
-        printf("Disk params and BPB disagree on bytes per sector: disk: %d, bpb: %d\n",
-               fat.disk.bytesPerSector,
-               fat.bytesPerSector);
-               panic("Fatal error!");
-    }
 
     // Setup space to hold a couple of sectors of the FAT
     fat.FAT = alloc(FAT_BUFFER_SIZE * fat.bytesPerSector);
@@ -280,6 +286,11 @@ Bool fatInitialize(Uint8 driveNumber, Partition* part)
     return true;
 }
 
+/*
+ * Open a file given a path
+ *
+ * Returns a handle. BAD_HANDLE on error
+ */
 Handle fatOpen(const char* path)
 {
     if (path == NULL || path[0] == '\0') {
@@ -287,16 +298,18 @@ Handle fatOpen(const char* path)
         return BAD_HANDLE;
     }
 
-    if (path[0] != '/') {
-        printf("Failed to open file '%s': Path does not begin with a '/'\n", path);
-        return BAD_HANDLE;
-    }
-
     const char* originalPath = path;
     
     File* file = fat_openRootDir();
 
-    path++; // Skip root '/'
+    if (file == NULL) {
+        printf("Failed to open the root directory\n");
+        return BAD_HANDLE;
+    }
+
+    if (path[0] == '/') {
+        path++; // Skip leading '/'
+    }
 
     while (*path != '\0') {
         char component[13]; // 8 + '.' + 3 + null
@@ -314,13 +327,13 @@ Handle fatOpen(const char* path)
             return BAD_HANDLE;
         }
 
-        printf("fatOpen: ");
-        fat_printDirectoryEntry(&entry);
+        //printf("fatOpen: ");
+        //fat_printDirectoryEntry(&entry);
 
         fat_closeFile(file);                     // close parent directory
         file = fat_openFile(&entry);  // open child (file or dir)
-        printf("FO: ");
-        fat_printFile(file);
+        //printf("fatOpen: ");
+        //fat_printFile(file);
 
         if (*path == '\0') {
             break;
@@ -333,15 +346,25 @@ Handle fatOpen(const char* path)
             fat_closeFile(file);
         }
     }
-    printf("fatOpen returning id=%d\n", file->id);
+    //printf("fatOpen returning id=%d\n", file->id);
+    fat_printFile(file);
     return file->id;
 }
 
+/*
+ * Read count bytes from handle into buff
+ *
+ * Returns number of bytes read
+ * Returning zero bytes indicates an error though usually that is end of file
+ */
 Uint32 fatRead(Handle handle, Uint32 count, void* buff)
 {
     return fat_readFile(&fat.files[handle], count, buff);
 }
 
+/*
+ * Close handle
+ */
 void fatClose(Handle handle)
 {
     fat_closeFile(&fat.files[handle]);
@@ -567,7 +590,7 @@ Bool fat_findFileInDirectory(const char* name, File* dir, DirectoryEntry* foundE
         if (entry.name[0] == '\0') {
             break;      // name starting with '\0' signals all remaining entries are free
         }
-        fat_printFile(dir);
+        //fat_printFile(dir);
         printf("Comparing ");
         fat_printFATName(entry.name);
         printf(" to ");
@@ -575,6 +598,7 @@ Bool fat_findFileInDirectory(const char* name, File* dir, DirectoryEntry* foundE
         printf("\n");
         if (memcmp(entry.name, fatName, 11) == 0) {
             *foundEntry = entry;
+            fat_printDirectoryEntry(foundEntry);
             return true;
         }
     }
@@ -584,8 +608,8 @@ Bool fat_findFileInDirectory(const char* name, File* dir, DirectoryEntry* foundE
 
 Bool fat_readDirEntry(File* dir, DirectoryEntry* entry)
 {
-    printf("RDE: ");
-    fat_printFile(dir);
+    // printf("RDE: ");
+    // fat_printFile(dir);
 
     if (dir->position / fat.bytesPerSector != dir->sectorInBuffer) {
         if(!fat_readNextSector(dir)) {

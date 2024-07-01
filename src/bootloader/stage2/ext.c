@@ -309,16 +309,14 @@ Handle extOpen(const char* path)
         return BAD_HANDLE;
     }
 
-    if (path[0] != '/') {
-        printf("Failed to open file '%s': Path does not begin with a '/'\n", path);
-        return BAD_HANDLE;
-    }
-
     const char* originalPath = path;
 
     File* file = ext_openFile(ROOT_DIR_INODE);
 
-    path++; // skip leading '/'
+    if (path[0] == '/') {
+        path++; // Skip leading '/'
+    }
+
 
     while (*path != '\0') {
         // Get next component of path
@@ -329,7 +327,7 @@ Handle extOpen(const char* path)
             ext_closeFile(file);
             return BAD_HANDLE;
         }
-        printf("Found component '%s'\n", component);
+        //printf("Found component '%s'\n", component);
 
         // See if it matches any directory entry
         DirectoryEntry entry;
@@ -339,10 +337,10 @@ Handle extOpen(const char* path)
             ext_closeFile(file);
             return BAD_HANDLE;
         }
-        printf("extOpen: ");
-        ext_printDirectoryEntry(&entry);
-        printf("DE: inode = %d, size = %d, name length = %d, type = %#x\n",
-        entry.inodeNum, entry.size, entry.nameLength, entry.type);
+        //printf("extOpen: ");
+        //ext_printDirectoryEntry(&entry);
+        //printf("DE: inode = %d, size = %d, name length = %d, type = %#x\n",
+        //       entry.inodeNum, entry.size, entry.nameLength, entry.type);
 
         // Switch to the new entry
         ext_closeFile(file);
@@ -362,7 +360,8 @@ Handle extOpen(const char* path)
         }
     }
 
-    printf("extOpen returning id=%d\n", file->id);
+    ext_printFile(file);
+
     return file->id;
 }
 
@@ -446,7 +445,7 @@ Bool ext_findFileInDirectory(const char* name, File* dir, DirectoryEntry* foundE
 
 File* ext_openFile(Uint32 iNum)
 {
-    printf("ext_openFile: %d\n", iNum);
+    printf("ext_openFile: inode = %d (%#x)\n", iNum, iNum);
 
     Handle handle = ext_getFreeHandle();
     if (handle == BAD_HANDLE) {
@@ -459,24 +458,22 @@ File* ext_openFile(Uint32 iNum)
     Uint32 iBlock = ext.inodeTableBlock + ((iNum - 1) * ext.inodeSize) / ext.blockSize;
     Uint32 iOffset = ((iNum - 1) * ext.inodeSize) % ext.blockSize;
 
-    printf("Dir block = %#x, offset = %#x\n", iBlock, iOffset);
+    //printf("Dir block = %#x, offset = %#x\n", iBlock, iOffset);
 
     Uint8* inodeBlock = alloc(ext.blockSize);
     if (!ext_readBlock(&ext.disk, iBlock, inodeBlock)) {
         printf("ext_openFile: Failed to read inode block %#x\n", iBlock);
         return NULL;
     }
-    printf("inodeBlock = %#x\n", inodeBlock);
+    //printf("inodeBlock = %#x\n", inodeBlock);
     Inode* inode = (Inode*) (inodeBlock + iOffset);
-    printf("size = %d, block0 = %#x\n", inode->sizeLow, inode->directBlocks[0]);
+    //printf("size = %d, block0 = %#x\n", inode->sizeLow, inode->directBlocks[0]);
 
     file->isOpened = true;
     //file->inode = *inode;     <- doesn't work!?!?
     memcpy(&file->inode, inode, sizeof(Inode));
     file->blockInBuffer = UINT32_MAX; // This will force a block load on first read attempt
     file->position = 0;
-
-    ext_printFile(file);
 
     return file;
 }
@@ -500,7 +497,7 @@ Handle ext_getFreeHandle()
 
 Bool ext_readNextDirectoryEntry(File* file, DirectoryEntry* entry)
 {
-    printf("readNDE: pos = %#x, cbif = %#x, size = %d\n", file->position, file->blockInBuffer, file->inode.sizeLow);
+    //printf("readNDE: pos = %#x, cbif = %#x, size = %d\n", file->position, file->blockInBuffer, file->inode.sizeLow);
 
     if (file->position >= file->inode.sizeLow) {
         printf("EOF\n");
@@ -519,7 +516,7 @@ Bool ext_readNextDirectoryEntry(File* file, DirectoryEntry* entry)
     file->position += entry->size;
     file->position = align(file->position, 4);
 
-    printf("readNDE: pos = %#x\n", file->position);
+    //printf("readNDE: pos = %#x\n", file->position);
 
     return true;
 }

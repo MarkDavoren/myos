@@ -5,11 +5,12 @@
 
 typedef struct {
     Uint8   id;
+    Bool    hasExtensions;
     Uint16  numCylinders;
     Uint16  numHeads;
     Uint16  numSectors;
     Uint16  bytesPerSector;
-    Uint32  offset;     // LBA offset to start of partition
+    Uint32  offset;         // LBA offset to start of partition
 } Disk;
 
 Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part);

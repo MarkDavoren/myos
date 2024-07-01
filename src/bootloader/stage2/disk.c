@@ -6,20 +6,29 @@
 #include "utility.h"
 
 /*
- *  Initialize the Disk object for the specified drive number from BIOS details
+ * Initialize the Disk object for the specified drive number from BIOS details
+ *
+ * If there are no partitions, it is expected that part will point to an empty partition block
+ * in which case lba == 0 which is the offset we want for a non-partitioned disk
+ * 
+ * If disk extensions are not enabled for this drive then we guess that there are 512 bytes per sector
+ * The caller should confirm/overwrite from other sources such as the MBR
  */
 Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part)
 {
     Uint16 numCylinders, numHeads, numSectors, bytesPerSectors;
 
+    disk->hasExtensions = bios_hasDiskExtensions(driveNumber);
+    printf("hasExtensions = %d\n", disk->hasExtensions);
+
     if (!bios_getDriveParams(driveNumber, &numCylinders, &numHeads, &numSectors)) {
-        printf("bios_getDriveParams failed\n");
+        printf("diskInit: Cannot get drive params\n");
         return false;
     }
 
-    if (!bios_getExtDriveParams(driveNumber, &bytesPerSectors)) {
-        printf("bios_getExtDriveParams failed\n");
-        return false;
+    if (!disk->hasExtensions || !bios_getExtDriveParams(driveNumber, &bytesPerSectors)) {
+        printf("diskInit: Cannot get drive extended params. Guessing at bytes per sector\n");
+        bytesPerSectors = 512;  // Default value
     }
 
     disk->id = driveNumber;
@@ -29,19 +38,21 @@ Bool diskInit(Disk* disk, Uint8 driveNumber, Partition* part)
     disk->bytesPerSector = bytesPerSectors;
     disk->offset = part->lba;
 
-    printf("diskInit: Cylinders = %d, Heads = %d, Sectors = %d, offset = %d, bps = %d\n",
+    printf("diskInit: Cylinders = %d, Heads = %d, Sectors = %d, offset = %d, bps = %d, ext? = %d\n",
         disk->numCylinders,
         disk->numHeads,
         disk->numSectors,
         disk->offset,
-        disk->bytesPerSector);
+        disk->bytesPerSector,
+        disk->hasExtensions);
+
     return true;
 }
 
 /*
  * Read count sectors from disk starting at lba into buffer
  *
- * Deprecated as it's lba and count have unacceptable limits
+ * Warning: count must be < 255. LBA is limited by the CHS geometry
  */
 Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
 {
@@ -55,7 +66,7 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
     cylinder = (lba / disk->numSectors) / disk->numHeads;
     head = (lba / disk->numSectors) % disk->numHeads;
 
-    printf("Read: lba = %u, cylinder = %u, head = %u, sector = %u, count = %u\n", lba, cylinder, head, sector, count);
+    //printf("diskRead: lba = %u, cylinder = %u, head = %u, sector = %u, count = %u\n", lba, cylinder, head, sector, count);
 
     // Ralf Brown recommends trying up to three times to read with a reset between attempts
     // since the read may fail due the motor failing to spin up quickly enough
@@ -65,7 +76,7 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
     // On Qemu, a failed read will leave *count unchanged
     for (int retries = 0; retries < 3; retries++) {
         ok = bios_readDisk(disk->id, cylinder, head, sector, count, buffer, &status);
-        printf("OK = %x, Status = %x\n", ok, status);
+        //printf("OK = %x, Status = %x\n", ok, status);
 
         if (ok) {
             return true;
@@ -81,43 +92,34 @@ Bool diskRead(Disk* disk, Uint32 lba, Uint8 count, Uint8* buffer)
 }
 
 /*
- * Extended form of diskRead
+ * Extended form of diskRead - calls bios_ExtReadDisk
  *
- * diskRead takes a Uint8 count so anything > 255 won't work
- * Furthermore the CHS address system has an 8MB limit
- *
- * diskExtRead takes a 16 bit count and directly uses the lba
+ * bios_ExtReadDisk takes a 16 bit count and directly uses the lba,
+ *   but only works if disk extensions are enabled
  * 
- * It calls a BIOS function that requires BIOS extensions enabled
+ * if disk extensions are not enabled then tries calling diskRead
+ *   diskRead takes a Uint8 count so anything > 255 won't work
+ *   Furthermore the CHS address system has an 8MB limit
  */
 Bool diskExtRead(Disk* disk, Uint32 lba, Uint16 count, Uint8* buff)
 {
     Uint8 status;
+    Bool ok;
 
     lba += disk->offset;
 
     //printf("diskExtRead: lba = %#x, count = %#x sectors, buff= %#p\n", lba, count, buff);
-    Bool ok = bios_ExtReadDisk(disk->id, lba, count, buff, &status);
-    //printf("OK = %d, Status = %#x\n", ok, status);
+
+    if (disk->hasExtensions) {
+        ok = bios_ExtReadDisk(disk->id, lba, count, buff, &status);
+        //printf("OK = %d, Status = %#x\n", ok, status);
+    } else if (count < 0x100 && lba < disk->numCylinders * disk->numHeads * disk->numSectors) {
+        ok = diskRead(disk, lba, count, buff);
+    } else {
+        printf("Attempted read with invalid params for non-extended disk: lba = %#x, count = %#x sectors\n", lba, count);
+        panic("Cannot read disk");
+        ok = false; // Should never get here
+    }
 
     return ok;
-
-    // Uint16 limit = count;
-    // if (limit > 255) { // Max Uint8
-    //     limit = 128;
-    //     if (disk->bytesPerSector == 0) {
-    //         panic("diskExtRead: bytes per sector == 0");
-    //     }
-    // }
-
-    // while (count > 0) {
-    //     if (!diskRead(disk, lba, limit, buff)) {
-    //         return false;
-    //     }
-    //     lba += limit;
-    //     buff += limit * disk->bytesPerSector;
-    //     count -= limit;
-    // }
-
-    return true;
 }
